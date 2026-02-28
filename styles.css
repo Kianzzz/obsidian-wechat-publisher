@@ -1,0 +1,592 @@
+.wechat-publisher-view {
+	padding: 16px;
+	height: 100%;
+	overflow-y: auto;
+}
+
+/* Modal Styles */
+.modal-button-container {
+	display: flex;
+	justify-content: flex-end;
+	gap: 8px;
+	margin-top: 24px;
+	padding-top: 16px;
+	border-top: 1px solid var(--background-modifier-border);
+}
+
+.modal-button-container button {
+	padding: 8px 16px;
+	border-radius: 4px;
+	cursor: pointer;
+	font-size: 14px;
+	font-weight: 500;
+	transition: all 0.2s ease;
+}
+
+.modal-button-container button.mod-cancel {
+	background-color: var(--background-secondary);
+	color: var(--text-normal);
+	border: 1px solid var(--background-modifier-border);
+}
+
+.modal-button-container button.mod-cancel:hover {
+	background-color: var(--background-modifier-hover);
+}
+
+.modal-button-container button.mod-cta {
+	background-color: var(--interactive-accent);
+	color: var(--text-on-accent);
+	border: none;
+}
+
+.modal-button-container button.mod-cta:hover {
+	background-color: var(--interactive-accent-hover);
+}
+
+/* QR Code Modal */
+.qrcode-container {
+	display: flex;
+	justify-content: center;
+	align-items: center;
+	padding: 24px;
+	background-color: var(--background-secondary);
+	border-radius: 8px;
+	margin: 16px 0;
+}
+
+.qrcode-image {
+	max-width: 300px;
+	max-height: 300px;
+	border-radius: 8px;
+	background-color: white;
+	padding: 16px;
+}
+
+.qrcode-status {
+	text-align: center;
+	padding: 12px;
+	margin: 16px 0;
+	font-size: 14px;
+	color: var(--text-muted);
+	background-color: var(--background-secondary);
+	border-radius: 4px;
+}
+
+/* Account Item in Settings */
+.wechat-account-item {
+	margin-bottom: 12px;
+	padding: 12px;
+	background-color: var(--background-secondary);
+	border-radius: 6px;
+}
+
+/* WeChat Preview Modal */
+.wechat-preview-container {
+	max-width: 677px;
+	margin: 16px auto;
+	padding: 20px;
+	background-color: white;
+	border-radius: 8px;
+	box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+	max-height: 600px;
+	overflow-y: auto;
+	color: #333;
+}
+
+/* Dark mode adjustments */
+.theme-dark .wechat-preview-container {
+	background-color: #1e1e1e;
+	color: #e0e0e0;
+}
+
+/* Theme Selection Section */
+.theme-selection-section {
+	margin: 16px 0;
+	padding: 12px;
+	background-color: var(--background-secondary);
+	border-radius: 6px;
+}
+
+.theme-selection-section h4 {
+	margin: 0 0 8px 0;
+	font-size: 14px;
+	font-weight: 600;
+	color: var(--text-normal);
+}
+
+.theme-control-row {
+	display: flex;
+	gap: 8px;
+	align-items: center;
+}
+
+.theme-select {
+	flex: 1;
+	min-width: 0;
+	padding: 6px 8px;
+	font-size: 13px;
+	line-height: 1.5;
+	background-color: var(--background-primary);
+	color: var(--text-normal);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: 4px;
+	cursor: pointer;
+	transition: all 0.2s ease;
+	min-height: 32px;
+}
+
+.theme-select:hover {
+	border-color: var(--interactive-accent);
+}
+
+.theme-select:focus {
+	outline: none;
+	border-color: var(--interactive-accent);
+	box-shadow: 0 0 0 2px var(--interactive-accent-hover);
+}
+
+.theme-refresh-btn {
+	padding: 8px 16px;
+	font-size: 14px;
+	background-color: var(--interactive-accent);
+	color: var(--text-on-accent);
+	border: none;
+	border-radius: 4px;
+	cursor: pointer;
+	white-space: nowrap;
+	transition: all 0.2s ease;
+}
+
+.theme-refresh-btn:hover {
+	background-color: var(--interactive-accent-hover);
+}
+
+.theme-hint {
+	margin-top: 8px;
+	font-size: 12px;
+	line-height: 1.4;
+}
+
+.publisher-header h3 {
+	margin: 0 0 16px 0;
+	font-size: 18px;
+	font-weight: 600;
+}
+
+/* Service Status */
+.service-status {
+	margin-bottom: 24px;
+	padding: 12px;
+	background-color: var(--background-secondary);
+	border-radius: 8px;
+}
+
+.status-indicator {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+}
+
+.status-dot {
+	width: 8px;
+	height: 8px;
+	border-radius: 50%;
+	background-color: var(--text-muted);
+}
+
+.status-dot.online {
+	background-color: #52C41A;
+	box-shadow: 0 0 4px #52C41A;
+}
+
+.status-dot.offline {
+	background-color: #F5222D;
+	box-shadow: 0 0 4px #F5222D;
+}
+
+.status-text {
+	font-size: 14px;
+	color: var(--text-normal);
+}
+
+/* Account Selection */
+.account-selection-section {
+	margin-bottom: 24px;
+}
+
+.account-selection-section h4 {
+	margin: 0 0 12px 0;
+	font-size: 16px;
+	font-weight: 600;
+}
+
+.empty-state {
+	padding: 32px 24px;
+	text-align: center;
+	color: var(--text-muted);
+	font-size: 14px;
+	background-color: var(--background-secondary);
+	border-radius: 8px;
+	min-height: 80px;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+}
+
+.quick-actions {
+	display: flex;
+	gap: 8px;
+	margin-bottom: 12px;
+}
+
+.quick-actions button {
+	padding: 6px 12px;
+	font-size: 12px;
+	border-radius: 4px;
+	border: 1px solid var(--background-modifier-border);
+	background-color: var(--background-primary);
+	color: var(--text-normal);
+	cursor: pointer;
+	transition: all 0.2s ease;
+}
+
+.quick-actions button:hover {
+	background-color: var(--background-modifier-hover);
+}
+
+.account-list {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	margin-bottom: 12px;
+}
+
+.account-item {
+	display: flex;
+	align-items: flex-start;
+	gap: 12px;
+	padding: 12px;
+	background-color: var(--background-secondary);
+	border-radius: 8px;
+	border: 1px solid transparent;
+	transition: all 0.2s ease;
+}
+
+.account-item:hover {
+	border-color: var(--background-modifier-border);
+}
+
+.account-item.expired {
+	border-color: #FAAD14;
+	background-color: rgba(250, 173, 20, 0.05);
+}
+
+.account-item.error {
+	border-color: #F5222D;
+	background-color: rgba(245, 34, 45, 0.05);
+}
+
+.account-item input[type="checkbox"] {
+	margin-top: 2px;
+	cursor: pointer;
+}
+
+.account-item input[type="checkbox"]:disabled {
+	cursor: not-allowed;
+	opacity: 0.5;
+}
+
+.account-label {
+	flex: 1;
+}
+
+.status-icon {
+	font-size: 14px;
+	margin-right: 4px;
+}
+
+.account-name {
+	font-size: 14px;
+	font-weight: 500;
+	color: var(--text-normal);
+}
+
+.account-remark {
+	font-size: 12px;
+	color: var(--text-muted);
+	margin-top: 4px;
+}
+
+.warning-text {
+	font-size: 12px;
+	color: #FAAD14;
+	margin-top: 4px;
+}
+
+.account-actions {
+	display: flex;
+	gap: 4px;
+	align-items: center;
+	flex-shrink: 0;
+}
+
+.account-action-btn {
+	width: 28px;
+	height: 28px;
+	padding: 0;
+	border-radius: 4px;
+	border: 1px solid var(--background-modifier-border);
+	background-color: var(--background-primary);
+	color: var(--text-muted);
+	font-size: 14px;
+	cursor: pointer;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	transition: all 0.2s ease;
+}
+
+.account-action-btn:hover {
+	background-color: var(--background-modifier-hover);
+	color: var(--text-normal);
+}
+
+.account-delete-btn:hover {
+	border-color: #F5222D;
+	color: #F5222D;
+	background-color: rgba(245, 34, 45, 0.05);
+}
+
+.account-action-btn:disabled {
+	opacity: 0.4;
+	cursor: not-allowed;
+}
+
+.selected-count {
+	font-size: 14px;
+	color: var(--text-muted);
+	text-align: right;
+}
+
+/* Cover Upload */
+.cover-upload-section {
+	margin-bottom: 24px;
+}
+
+.cover-upload-section h4 {
+	margin: 0 0 12px 0;
+	font-size: 16px;
+	font-weight: 600;
+}
+
+.cover-upload-area {
+	position: relative;
+	padding: 32px;
+	border: 2px dashed var(--background-modifier-border);
+	border-radius: 8px;
+	text-align: center;
+	cursor: pointer;
+	transition: all 0.2s ease;
+}
+
+.cover-upload-area:hover {
+	border-color: var(--interactive-accent);
+	background-color: var(--background-modifier-hover);
+}
+
+.cover-upload-area.dragover {
+	border-color: var(--interactive-accent);
+	background-color: var(--background-modifier-hover);
+}
+
+.upload-placeholder p {
+	margin: 4px 0;
+	color: var(--text-normal);
+}
+
+.upload-hint {
+	font-size: 12px;
+	color: var(--text-muted);
+}
+
+.hidden-input {
+	display: none;
+}
+
+.cover-preview {
+	position: relative;
+	border-radius: 8px;
+	overflow: hidden;
+	border: 1px solid var(--background-modifier-border);
+}
+
+.cover-preview img {
+	width: 100%;
+	height: auto;
+	display: block;
+}
+
+.remove-cover {
+	position: absolute;
+	top: 8px;
+	right: 8px;
+	width: 28px;
+	height: 28px;
+	border-radius: 50%;
+	border: none;
+	background-color: rgba(0, 0, 0, 0.6);
+	color: white;
+	font-size: 20px;
+	line-height: 1;
+	cursor: pointer;
+	transition: all 0.2s ease;
+}
+
+.remove-cover:hover {
+	background-color: rgba(0, 0, 0, 0.8);
+}
+
+/* Action Buttons */
+.action-buttons {
+	display: flex;
+	gap: 12px;
+	margin-bottom: 24px;
+}
+
+.action-buttons button {
+	flex: 1;
+	padding: 12px 16px;
+	font-size: 14px;
+	font-weight: 500;
+	border-radius: 6px;
+	border: none;
+	cursor: pointer;
+	transition: all 0.2s ease;
+}
+
+.preview-btn {
+	background-color: transparent;
+	border: 1px solid var(--background-modifier-border);
+	color: var(--text-normal);
+}
+
+.preview-btn:hover {
+	background-color: var(--background-modifier-hover);
+}
+
+.publish-btn {
+	background-color: #07C160;
+	color: white;
+}
+
+.publish-btn:hover {
+	background-color: #06AD51;
+}
+
+.publish-btn:active {
+	background-color: #059B47;
+	transform: scale(0.98);
+}
+
+.publish-btn:disabled {
+	background-color: var(--background-modifier-border);
+	color: var(--text-muted);
+	cursor: not-allowed;
+	opacity: 0.6;
+}
+
+/* Publish Progress */
+.publish-progress-section {
+	margin-bottom: 24px;
+}
+
+.publish-progress-section h4 {
+	margin: 0 0 12px 0;
+	font-size: 16px;
+	font-weight: 600;
+}
+
+.progress-list {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+}
+
+.progress-item {
+	padding: 12px;
+	background-color: var(--background-secondary);
+	border-radius: 8px;
+}
+
+.progress-item-header {
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+}
+
+.progress-item .account-name {
+	font-size: 14px;
+	font-weight: 500;
+}
+
+.status {
+	font-size: 12px;
+	padding: 4px 8px;
+	border-radius: 4px;
+}
+
+.status.pending {
+	background-color: rgba(0, 0, 0, 0.05);
+	color: var(--text-muted);
+}
+
+.status.publishing {
+	background-color: rgba(7, 193, 96, 0.1);
+	color: #07C160;
+}
+
+.status.success {
+	background-color: rgba(82, 196, 26, 0.1);
+	color: #52C41A;
+}
+
+.status.failed {
+	background-color: rgba(245, 34, 45, 0.1);
+	color: #F5222D;
+}
+
+/* Settings Page */
+.wechat-account-item {
+	padding: 12px;
+	margin: 8px 0;
+	background-color: var(--background-secondary);
+	border-radius: 8px;
+}
+
+/* Publish Summary */
+.publish-summary {
+	margin-top: 16px;
+	padding: 12px 16px;
+	border-radius: 8px;
+	font-size: 14px;
+	font-weight: 500;
+	text-align: center;
+}
+
+.publish-summary.summary-success {
+	background-color: rgba(82, 196, 26, 0.1);
+	color: #52C41A;
+	border: 1px solid rgba(82, 196, 26, 0.3);
+}
+
+.publish-summary.summary-failed {
+	background-color: rgba(245, 34, 45, 0.1);
+	color: #F5222D;
+	border: 1px solid rgba(245, 34, 45, 0.3);
+}
+
+.publish-summary.summary-partial {
+	background-color: rgba(250, 173, 20, 0.1);
+	color: #FAAD14;
+	border: 1px solid rgba(250, 173, 20, 0.3);
+}

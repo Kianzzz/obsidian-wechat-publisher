@@ -1,0 +1,4 @@
+data.json
+main.js.backup-*
+*.bak
+.DS_Store
