@@ -2,6 +2,8 @@
 
 一款 Obsidian 插件，支持将 Markdown 笔记**批量发布**到多个微信公众号草稿箱。
 
+> 支持 Windows / macOS / Linux 桌面端
+
 ## 功能特性
 
 - **多账号管理**：同时管理多个公众号，一键批量发布
@@ -110,6 +112,14 @@ p {
 - AppSecret 请妥善保管，不要泄露
 - 发布需要将服务器/代理 IP 添加到公众号的 IP 白名单
 - 图片会自动压缩上传至公众号素材库
+
+## 赞赏
+
+如果这个插件对你有帮助，欢迎请作者喝杯奶茶 :)
+
+<p align="center">
+  <img src="assets/wechat-reward.jpg" alt="微信赞赏码" width="300">
+</p>
 
 ## License
 
