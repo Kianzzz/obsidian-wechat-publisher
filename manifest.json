@@ -4,8 +4,8 @@
   "version": "2.1.2",
   "minAppVersion": "0.15.0",
   "description": "Batch publish notes to multiple WeChat Official Accounts (with image compression)",
-  "author": "",
-  "authorUrl": "",
+  "author": "Kianzzz",
+  "authorUrl": "https://github.com/Kianzzz",
   "fundingUrl": "",
   "isDesktopOnly": true
 }
