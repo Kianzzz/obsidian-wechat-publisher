@@ -113,14 +113,3 @@ p {
 - 发布需要将服务器/代理 IP 添加到公众号的 IP 白名单
 - 图片会自动压缩上传至公众号素材库
 
-## 赞赏
-
-如果这个插件对你有帮助，欢迎请作者喝杯奶茶 :)
-
-<p align="center">
-  <img src="assets/wechat-reward.jpg" alt="微信赞赏码" width="300">
-</p>
-
-## License
-
-[MIT](LICENSE)
