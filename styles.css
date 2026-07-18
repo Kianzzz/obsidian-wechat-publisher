@@ -426,6 +426,15 @@
 	display: block;
 }
 
+.default-cover-preview img {
+	display: block;
+	max-width: 200px;
+	max-height: 150px;
+	margin: 8px 0 16px;
+	border-radius: 6px;
+	object-fit: cover;
+}
+
 .remove-cover {
 	position: absolute;
 	top: 8px;

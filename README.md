@@ -9,8 +9,10 @@
 - **多账号管理**：同时管理多个公众号，一键批量发布
 - **CSS 排版主题**：内置 13 款精选排版样式，也可自定义 CSS 主题
 - **封面图片**：支持上传封面图片，发布时自动压缩
+- **默认封面**：可在设置中保存一张默认封面
 - **实时预览**：发布前可预览排版效果
-- **Frontmatter 处理**：自动剥离 YAML frontmatter，不影响发布内容
+- **长图导出**：将排版后的文章保存为 PNG 到当前笔记目录
+- **Frontmatter 处理**：可选择剥离 YAML frontmatter
 - **图片压缩上传**：自动将笔记中的图片压缩并上传到公众号素材库
 - **代理支持**：支持 SOCKS5 / HTTP 代理，解决网络访问问题
 - **发布历史**：记录每次发布结果，方便回溯
@@ -30,13 +32,10 @@
 ├── main.js          # 插件主文件
 ├── styles.css       # 插件样式
 ├── manifest.json    # 插件元数据
-├── themes/          # 内置 CSS 排版主题
-│   ├── Apple极简-黑.md
-│   ├── 清水极简-黑.md
-│   ├── Nikkei-红.md
-│   └── ...
 └── data.json        # 运行时配置（自动生成，勿手动编辑）
 ```
+
+内置主题已打包进 `main.js`，安装 Release 中的三个文件即可使用；仓库内的 `themes/` 是主题源文件。
 
 ## 配置
 
@@ -110,6 +109,19 @@ p {
 
 - 需要已认证的微信公众号（服务号或已认证的订阅号）
 - AppSecret 请妥善保管，不要泄露
+- AppSecret、Access Token 和代理密码保存在 Obsidian SecretStorage 中，不写入 `data.json`
 - 发布需要将服务器/代理 IP 添加到公众号的 IP 白名单
 - 图片会自动压缩上传至公众号素材库
 
+## 隐私与网络请求
+
+插件只在你测试账号、检测状态或发布草稿时请求微信公众平台 API；测试代理或查看出口 IP 时会请求 `api.ipify.org`。若配置代理，相应请求会经过该代理。文章正文和图片不会上传到作者控制的服务器。
+
+## 开发
+
+```bash
+npm install
+npm run build
+```
+
+构建会生成 Obsidian 运行所需的 `main.js`。提交问题前请阅读 [CONTRIBUTING.md](CONTRIBUTING.md)；安全问题请按 [SECURITY.md](SECURITY.md) 的方式报告。

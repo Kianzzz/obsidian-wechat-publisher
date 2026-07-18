@@ -1,0 +1,383 @@
+import { applyInlineCSS } from './css-to-inline';
+import { marked } from 'marked';
+import { sanitizeHTMLToDom } from 'obsidian';
+
+/**
+ * Convert Markdown to WeChat Official Account HTML format
+ * This is a simplified version - for production, consider using a dedicated library
+ */
+export class WeChatFormatter {
+	/**
+	 * Convert markdown to WeChat-compatible HTML with optional custom CSS
+	 */
+	static markdownToHtml(markdown: string, customCSS?: string): string {
+		let html = markdown;
+
+		// Headers
+		html = html.replace(/^### (.*$)/gim, '<h3 style="margin: 1.2em 0 1em; font-size: 16px; font-weight: bold; color: #333;">$1</h3>');
+		html = html.replace(/^## (.*$)/gim, '<h2 style="margin: 1.2em 0 1em; font-size: 18px; font-weight: bold; color: #333;">$1</h2>');
+		html = html.replace(/^# (.*$)/gim, '<h1 style="margin: 1.2em 0 1em; font-size: 20px; font-weight: bold; color: #333;">$1</h1>');
+
+		// Bold
+		html = html.replace(/\*\*(.*?)\*\*/g, '<strong style="font-weight: bold; color: #333;">$1</strong>');
+		html = html.replace(/__(.*?)__/g, '<strong style="font-weight: bold; color: #333;">$1</strong>');
+
+		// Italic
+		html = html.replace(/\*(.*?)\*/g, '<em style="font-style: italic;">$1</em>');
+		html = html.replace(/_(.*?)_/g, '<em style="font-style: italic;">$1</em>');
+
+		// Inline code
+		html = html.replace(/`([^`]+)`/g, '<code style="padding: 2px 4px; font-size: 90%; color: #c7254e; background-color: #f9f2f4; border-radius: 3px; font-family: Menlo, Monaco, Consolas, monospace;">$1</code>');
+
+		// Code blocks
+		html = html.replace(/```(\w+)?\n([\s\S]*?)```/g, (match, lang, code) => {
+			return `<pre style="padding: 16px; overflow: auto; font-size: 14px; line-height: 1.45; background-color: #f6f8fa; border-radius: 6px; margin: 1em 0;"><code style="font-family: Menlo, Monaco, Consolas, monospace; color: #333;">${this.escapeHtml(code.trim())}</code></pre>`;
+		});
+
+		// Images (MUST be before Links because ![...](...) contains [...](...))
+		html = html.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<img src="$2" alt="$1" style="max-width: 100%; height: auto; display: block; margin: 1em auto;" />');
+
+		// Links
+		html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" style="color: #576b95; text-decoration: none;">$1</a>');
+
+		// Blockquotes
+		html = html.replace(/^> (.*$)/gim, '<blockquote style="margin: 1em 0; padding: 0 0 0 1em; border-left: 4px solid #d0d0d0; color: #666;">$1</blockquote>');
+
+		// Unordered lists
+		html = html.replace(/^\* (.*$)/gim, '<li style="margin: 0.5em 0; line-height: 1.6;">$1</li>');
+		html = html.replace(/^- (.*$)/gim, '<li style="margin: 0.5em 0; line-height: 1.6;">$1</li>');
+
+		// Wrap consecutive list items in ul
+		html = html.replace(/(<li[^>]*>.*<\/li>\s*)+/g, (match) => {
+			return `<ul style="margin: 1em 0; padding-left: 2em; list-style-type: disc;">${match}</ul>`;
+		});
+
+		// Ordered lists
+		html = html.replace(/^\d+\. (.*$)/gim, '<li style="margin: 0.5em 0; line-height: 1.6;">$1</li>');
+
+		// Wrap consecutive ordered list items in ol
+		html = html.replace(/(<li[^>]*>.*<\/li>\s*)+/g, (match) => {
+			if (!match.includes('<ul')) {
+				return `<ol style="margin: 1em 0; padding-left: 2em; list-style-type: decimal;">${match}</ol>`;
+			}
+			return match;
+		});
+
+		// Horizontal rules
+		html = html.replace(/^---$/gim, '<hr style="border: none; border-top: 1px solid #e0e0e0; margin: 2em 0;" />');
+
+		// Paragraphs - split by double newlines
+		const paragraphs = html.split(/\n\n+/);
+		html = paragraphs.map(p => {
+			// Don't wrap if already wrapped in a block element
+			if (p.match(/^<(h[1-6]|ul|ol|pre|blockquote|hr)/)) {
+				return p;
+			}
+			// Don't wrap empty strings
+			if (!p.trim()) {
+				return '';
+			}
+			return `<p style="margin: 1em 0; line-height: 1.75; font-size: 15px; color: #333;">${p.trim()}</p>`;
+		}).join('\n');
+
+		// Wrap everything in a container with WeChat-friendly styles
+		html = `
+<section class="note-to-mp" style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; font-size: 15px; color: #333; line-height: 1.75; word-wrap: break-word; word-break: break-word;">
+${html}
+</section>`.trim();
+
+		// Apply custom CSS as inline styles if provided
+		if (customCSS) {
+			try {
+				html = applyInlineCSS(html, customCSS);
+			} catch (error) {
+				console.error('Failed to apply inline CSS:', error);
+				// If CSS application fails, return HTML without custom styles
+			}
+		}
+
+		return html;
+	}
+
+	/**
+	 * Escape HTML special characters
+	 */
+	private static escapeHtml(text: string): string {
+		const map: { [key: string]: string } = {
+			'&': '&amp;',
+			'<': '&lt;',
+			'>': '&gt;',
+			'"': '&quot;',
+			"'": '&#039;'
+		};
+		return text.replace(/[&<>"']/g, m => map[m]);
+	}
+
+	/**
+	 * Generate preview HTML (for display in Obsidian)
+	 */
+	static generatePreview(html: string): string {
+		return `
+<!DOCTYPE html>
+<html>
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<title>WeChat Preview</title>
+	<style>
+		body {
+			max-width: 677px;
+			margin: 0 auto;
+			padding: 20px;
+			background-color: #f5f5f5;
+			font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+		}
+		.preview-container {
+			background-color: white;
+			padding: 20px;
+			border-radius: 8px;
+			box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+		}
+	</style>
+</head>
+<body>
+	<div class="preview-container">
+		${html}
+	</div>
+</body>
+</html>`.trim();
+	}
+
+	/**
+	 * Process Obsidian image links
+	 */
+	static processObsidianImages(content: string, vault: any): string {
+		// Replace ![[image.png]] with standard markdown ![](image.png)
+		return content.replace(/!\[\[([^\]]+)\]\]/g, (match, filename) => {
+			// Try to find the file in the vault
+			const file = vault.getAbstractFileByPath(filename);
+			if (file) {
+				// For now, just convert to standard markdown
+				// In production, you'd upload the image and get a URL
+				return `![${filename}](${filename})`;
+			}
+			return match;
+		});
+	}
+}
+
+/**
+ * MarkedFormatter - Uses marked.js for professional Markdown parsing
+ * This provides better handling of code blocks, blockquotes, and other complex Markdown elements
+ */
+export class MarkedFormatter {
+	private static markedInstance: typeof marked | null = null;
+
+	/**
+	 * Initialize marked with WeChat-friendly renderer
+	 */
+	private static initMarked(): typeof marked {
+		if (this.markedInstance) {
+			return this.markedInstance;
+		}
+
+		this.markedInstance = marked;
+
+		// Configure marked options
+		marked.setOptions({
+			gfm: true,
+			breaks: true,
+			pedantic: false,
+		});
+
+		// Custom renderer for WeChat styles
+		const renderer = new marked.Renderer();
+
+		// Headings - no inline styles, just semantic tags
+		renderer.heading = (text: string, level: number) => {
+			return `<h${level}>${text}</h${level}>`;
+		};
+
+		// Paragraphs - no inline styles
+		renderer.paragraph = (text: string) => {
+			return `<p>${text}</p>`;
+		};
+
+		// Code blocks - wrap in code-section for CSS styling
+		renderer.code = (code: string, language: string | undefined) => {
+			const escapedCode = code
+				.replace(/&/g, '&amp;')
+				.replace(/</g, '&lt;')
+				.replace(/>/g, '&gt;')
+				.replace(/"/g, '&quot;')
+				.replace(/'/g, '&#039;');
+
+			// Split into lines for line number support
+			const lines = escapedCode.split('\n');
+			let codeBody = '';
+			let liItems = '';
+
+			for (let i = 0; i < lines.length; i++) {
+				let text = lines[i];
+				if (text.length === 0) {
+					text = '<br>';
+				}
+				codeBody += `<code>${text}</code>`;
+				liItems += `<li>${i + 1}</li>`;
+			}
+
+			const lang = language || '';
+			const langClass = lang ? `language-${lang}` : '';
+
+			// Wrap in code-section like wx-draft-auto for CSS compatibility
+			return `<section class="code-section ${langClass}"><pre>${codeBody}</pre></section>`;
+		};
+
+		// Inline code - no inline styles
+		renderer.codespan = (code: string) => {
+			return `<code>${code}</code>`;
+		};
+
+		// Blockquotes - no inline styles
+		renderer.blockquote = (quote: string) => {
+			return `<blockquote>${quote}</blockquote>`;
+		};
+
+		// Lists - no inline styles
+		renderer.list = (body: string, ordered: boolean) => {
+			const tag = ordered ? 'ol' : 'ul';
+			return `<${tag}>${body}</${tag}>`;
+		};
+
+		renderer.listitem = (text: string) => {
+			return `<li>${text}</li>`;
+		};
+
+		// Links - no inline styles
+		renderer.link = (href: string, title: string | null | undefined, text: string) => {
+			return `<a href="${href}">${text}</a>`;
+		};
+
+		// Images - no inline styles
+		renderer.image = (href: string, title: string | null | undefined, text: string) => {
+			return `<img src="${href}" alt="${text || ''}" />`;
+		};
+
+		// Strong (bold) - no inline styles
+		renderer.strong = (text: string) => {
+			return `<strong>${text}</strong>`;
+		};
+
+		// Emphasis (italic) - no inline styles
+		renderer.em = (text: string) => {
+			return `<em>${text}</em>`;
+		};
+
+		// Horizontal rule - no inline styles
+		renderer.hr = () => {
+			return `<hr />`;
+		};
+
+		marked.use({ renderer });
+
+		return this.markedInstance;
+	}
+
+	/**
+	 * Convert markdown to WeChat-compatible HTML with optional custom CSS
+	 */
+	static async markdownToHtml(markdown: string, customCSS?: string): Promise<string> {
+		const markedLib = this.initMarked();
+
+		// Parse markdown to HTML
+		let html = await markedLib.parse(markdown) as string;
+
+		// Wrap everything in a container with WeChat-friendly styles
+		html = `
+<section class="note-to-mp" style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; font-size: 15px; color: #333; line-height: 1.75; word-wrap: break-word; word-break: break-word;">
+${html}
+</section>`.trim();
+
+		// Apply custom CSS as inline styles if provided
+		if (customCSS) {
+			try {
+				html = applyInlineCSS(html, customCSS);
+			} catch (error) {
+				console.error('Failed to apply inline CSS:', error);
+				// If CSS application fails, return HTML without custom styles
+			}
+		}
+
+		return this.sanitize(html);
+	}
+
+	/**
+	 * Synchronous version for compatibility (uses cached parsing if possible)
+	 */
+	static markdownToHtmlSync(markdown: string, customCSS?: string): string {
+		const markedLib = this.initMarked();
+
+		// Use synchronous parse
+		let html = markedLib.parse(markdown, { async: false }) as string;
+
+		// Wrap everything in a container with WeChat-friendly styles
+		html = `
+<section class="note-to-mp" style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; font-size: 15px; color: #333; line-height: 1.75; word-wrap: break-word; word-break: break-word;">
+${html}
+</section>`.trim();
+
+		// Apply custom CSS as inline styles if provided
+		if (customCSS) {
+			try {
+				html = applyInlineCSS(html, customCSS);
+			} catch (error) {
+				console.error('Failed to apply inline CSS:', error);
+			}
+		} else {
+			// If no custom CSS, apply default inline styles
+			html = this.applyDefaultStyles(html);
+		}
+
+		return this.sanitize(html);
+	}
+
+	/**
+	 * Apply default inline styles when no custom CSS is provided
+	 */
+	private static applyDefaultStyles(html: string): string {
+		const defaultCSS = `
+h1 { margin: 1.2em 0 1em; font-size: 20px; font-weight: bold; color: #333; }
+h2 { margin: 1.2em 0 1em; font-size: 18px; font-weight: bold; color: #333; }
+h3 { margin: 1.2em 0 1em; font-size: 16px; font-weight: bold; color: #333; }
+h4 { margin: 1.2em 0 1em; font-size: 15px; font-weight: bold; color: #333; }
+h5 { margin: 1.2em 0 1em; font-size: 14px; font-weight: bold; color: #333; }
+h6 { margin: 1.2em 0 1em; font-size: 14px; font-weight: bold; color: #333; }
+p { margin: 1em 0; line-height: 1.75; font-size: 15px; color: #333; }
+pre { padding: 16px; overflow: auto; font-size: 14px; line-height: 1.45; background-color: #f6f8fa; border-radius: 6px; margin: 1em 0; }
+code { font-family: Menlo, Monaco, Consolas, monospace; }
+pre code { color: #333; }
+p code, li code { padding: 2px 4px; font-size: 90%; color: #c7254e; background-color: #f9f2f4; border-radius: 3px; }
+blockquote { margin: 1em 0; padding: 0 0 0 1em; border-left: 4px solid #d0d0d0; color: #666; }
+ul { margin: 1em 0; padding-left: 2em; list-style-type: disc; }
+ol { margin: 1em 0; padding-left: 2em; list-style-type: decimal; }
+li { margin: 0.5em 0; line-height: 1.6; }
+a { color: #576b95; text-decoration: none; }
+img { max-width: 100%; height: auto; display: block; margin: 1em auto; }
+strong { font-weight: bold; color: #333; }
+em { font-style: italic; }
+hr { border: none; border-top: 1px solid #e0e0e0; margin: 2em 0; }
+`;
+		try {
+			return applyInlineCSS(html, defaultCSS);
+		} catch (error) {
+			console.error('Failed to apply default styles:', error);
+			return html;
+		}
+	}
+
+	static sanitize(html: string): string {
+		const container = document.createElement('div');
+		container.append(sanitizeHTMLToDom(html));
+		return container.innerHTML;
+	}
+}
