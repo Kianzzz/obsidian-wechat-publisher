@@ -7,10 +7,9 @@ import { requestUrl, RequestUrlParam } from 'obsidian';
 import { ResolvedProxyConfig } from '../types';
 import { HttpsProxyAgent } from 'https-proxy-agent';
 import { SocksProxyAgent } from 'socks-proxy-agent';
-
-// 使用 Node.js 原生模块，避免 CORS 问题
-const http = require('http');
-const https = require('https');
+import FormData from 'form-data';
+import * as http from 'node:http';
+import * as https from 'node:https';
 
 /**
  * 发起带代理的请求
@@ -165,7 +164,6 @@ export async function uploadImage(
 
 		// 如果没有代理，使用 form-data 的 submit 方法
 		if (!proxyConfig || !proxyConfig.host || !proxyConfig.port) {
-			const FormData = require('form-data');
 			const formData = new FormData();
 			formData.append('media', buffer, {
 				filename: filename,
@@ -201,12 +199,6 @@ export async function uploadImage(
 		}
 
 		// 使用代理时，手动构建请求
-		const https = require('https');
-		const http = require('http');
-		const { HttpsProxyAgent } = require('https-proxy-agent');
-		const { SocksProxyAgent } = require('socks-proxy-agent');
-		const FormData = require('form-data');
-
 		// 创建代理agent
 		let agent: any;
 		if (proxyConfig.type === 'socks5') {

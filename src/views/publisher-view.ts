@@ -898,11 +898,8 @@ class PreviewModal extends Modal {
 		copyBtn.onclick = async () => {
 			try {
 				// Create a temporary element to hold the HTML
-				const tempDiv = document.createElement('div');
-				tempDiv.replaceChildren(sanitizeHTMLToDom(this.html));
-				tempDiv.style.position = 'absolute';
-				tempDiv.style.left = '-9999px';
-				document.body.appendChild(tempDiv);
+					const tempDiv = document.body.createDiv({ cls: 'wechat-multi-publisher-copy-buffer' });
+					tempDiv.replaceChildren(sanitizeHTMLToDom(this.html));
 
 				// Select the content
 				const range = document.createRange();
@@ -930,13 +927,13 @@ class PreviewModal extends Modal {
 				document.body.removeChild(tempDiv);
 				selection?.removeAllRanges();
 
-				setTimeout(() => {
+					window.setTimeout(() => {
 					copyBtn.textContent = '复制';
 				}, 2000);
 			} catch (error) {
 				console.error('Copy failed:', error);
 				copyBtn.textContent = '复制失败';
-				setTimeout(() => {
+					window.setTimeout(() => {
 					copyBtn.textContent = '复制';
 				}, 2000);
 			}
@@ -965,10 +962,8 @@ class PreviewModal extends Modal {
 	}
 
 	async exportLongImage(): Promise<string> {
-		const root = document.createElement('div');
-		root.style.cssText = 'position:fixed;left:-100000px;top:0;width:717px;padding:20px;box-sizing:border-box;background:#fff;color:#333;overflow:visible;';
+		const root = document.body.createDiv({ cls: 'wechat-multi-publisher-image-export' });
 		root.replaceChildren(sanitizeHTMLToDom(this.html));
-		document.body.appendChild(root);
 		try {
 			// requestAnimationFrame may pause when Obsidian is in the background.
 			await new Promise<void>(resolve => window.setTimeout(resolve, 50));

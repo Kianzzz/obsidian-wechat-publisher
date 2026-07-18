@@ -1,6 +1,6 @@
 {
   "name": "obsidian-wechat-multi-publisher",
-  "version": "2.3.1",
+  "version": "2.3.2",
   "description": "Publish Markdown notes to multiple WeChat Official Accounts.",
   "main": "main.js",
   "scripts": {
@@ -24,7 +24,6 @@
   "license": "MIT",
   "devDependencies": {
     "@types/node": "^24.0.0",
-    "builtin-modules": "^4.0.0",
     "esbuild": "^0.28.1",
     "obsidian": "^1.13.1",
     "tslib": "^2.8.1",

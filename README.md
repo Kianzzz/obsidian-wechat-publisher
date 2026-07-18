@@ -1,5 +1,35 @@
 # WeChat Multi Publisher for Obsidian
 
+Publish Markdown notes to the draft boxes of multiple WeChat Official Accounts from Obsidian.
+
+> Desktop only: Windows, macOS, and Linux
+
+## Features
+
+- Manage and publish to multiple WeChat Official Accounts in one operation.
+- Preview articles with 13 bundled CSS themes or your own vault-based themes.
+- Upload, compress, and reuse cover images and note images.
+- Remove YAML frontmatter before publishing when desired.
+- Export the formatted article as a long PNG image.
+- Store AppSecret, access tokens, and proxy passwords in Obsidian SecretStorage.
+- Use optional HTTP or SOCKS5 proxies and retain local publishing history.
+
+## Installation
+
+Download the latest [GitHub release](../../releases), then place `main.js`, `manifest.json`, and `styles.css` in:
+
+```text
+.obsidian/plugins/wechat-multi-publisher/
+```
+
+Enable **WeChat Multi Publisher** in Obsidian under **Settings → Community plugins**.
+
+## Privacy and network access
+
+The plugin contacts the WeChat Official Account API only when you test an account, check its status, upload media, or create a draft. Proxy tests may contact `api.ipify.org`. Article content and images are not sent to servers controlled by the plugin author. Credentials are stored with Obsidian SecretStorage and are not written to `data.json`.
+
+## 中文说明
+
 一款 Obsidian 插件，支持将 Markdown 笔记**批量发布**到多个微信公众号草稿箱。
 
 > 支持 Windows / macOS / Linux 桌面端

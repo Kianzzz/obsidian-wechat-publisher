@@ -4,6 +4,23 @@
 	overflow-y: auto;
 }
 
+.wechat-multi-publisher-copy-buffer {
+	position: absolute;
+	left: -9999px;
+}
+
+.wechat-multi-publisher-image-export {
+	position: fixed;
+	left: -100000px;
+	top: 0;
+	width: 717px;
+	padding: 20px;
+	box-sizing: border-box;
+	background: #fff;
+	color: #333;
+	overflow: visible;
+}
+
 /* Modal Styles */
 .modal-button-container {
 	display: flex;

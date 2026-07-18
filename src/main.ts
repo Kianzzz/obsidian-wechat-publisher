@@ -44,7 +44,7 @@ export default class WeChatPublisherPlugin extends Plugin {
 
 		// Add ribbon icon
 		this.addRibbonIcon('message-circle', '微信公众号发布', () => {
-			this.activateView();
+			void this.activateView();
 		});
 
 		// Add command to open publisher
@@ -52,7 +52,7 @@ export default class WeChatPublisherPlugin extends Plugin {
 			id: 'open-publisher',
 			name: '打开微信公众号发布面板',
 			callback: () => {
-				this.activateView();
+				void this.activateView();
 			}
 		});
 
@@ -193,24 +193,24 @@ export default class WeChatPublisherPlugin extends Plugin {
 		}
 
 		if (leaf) {
-			workspace.revealLeaf(leaf);
+				await workspace.revealLeaf(leaf);
 		}
 	}
 
 	startAutoCheck() {
 		if (this.statusCheckInterval) {
-			clearInterval(this.statusCheckInterval);
+			window.clearInterval(this.statusCheckInterval);
 		}
 
-		this.statusCheckInterval = window.setInterval(async () => {
-			await this.checkAllAccountsStatus();
+		this.statusCheckInterval = window.setInterval(() => {
+			void this.checkAllAccountsStatus();
 		}, this.settings.autoCheckInterval);
 		this.registerInterval(this.statusCheckInterval);
 	}
 
 	stopAutoCheck() {
 		if (this.statusCheckInterval) {
-			clearInterval(this.statusCheckInterval);
+			window.clearInterval(this.statusCheckInterval);
 			this.statusCheckInterval = null;
 		}
 	}

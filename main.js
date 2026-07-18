@@ -19626,8 +19626,9 @@ var ThemeManager = class {
 var import_obsidian4 = require("obsidian");
 var import_https_proxy_agent = __toESM(require_dist2());
 var import_socks_proxy_agent = __toESM(require_dist3());
-var http = require("http");
-var https = require("https");
+var import_form_data = __toESM(require_browser2());
+var http = __toESM(require("node:http"));
+var https = __toESM(require("node:https"));
 async function requestWithProxy(url, options2, proxyConfig) {
   if (!proxyConfig || !proxyConfig.host || !proxyConfig.port) {
     const response = await (0, import_obsidian4.requestUrl)(options2);
@@ -19728,8 +19729,7 @@ async function uploadImage(imageData, filename, accessToken, proxyConfig) {
   try {
     const buffer = Buffer.from(imageData);
     if (!proxyConfig || !proxyConfig.host || !proxyConfig.port) {
-      const FormData2 = require_browser2();
-      const formData2 = new FormData2();
+      const formData2 = new import_form_data.default();
       formData2.append("media", buffer, {
         filename,
         contentType: "image/jpeg"
@@ -19759,28 +19759,23 @@ async function uploadImage(imageData, filename, accessToken, proxyConfig) {
         });
       });
     }
-    const https2 = require("https");
-    const http2 = require("http");
-    const { HttpsProxyAgent: HttpsProxyAgent2 } = require_dist2();
-    const { SocksProxyAgent: SocksProxyAgent2 } = require_dist3();
-    const FormData = require_browser2();
     let agent;
     if (proxyConfig.type === "socks5") {
       const auth = proxyConfig.username && proxyConfig.password ? `${encodeURIComponent(proxyConfig.username)}:${encodeURIComponent(proxyConfig.password)}@` : "";
       const proxyUrl = `socks5h://${auth}${proxyConfig.host}:${proxyConfig.port}`;
-      agent = new SocksProxyAgent2(proxyUrl);
+      agent = new import_socks_proxy_agent.SocksProxyAgent(proxyUrl);
     } else {
       const auth = proxyConfig.username && proxyConfig.password ? `${encodeURIComponent(proxyConfig.username)}:${encodeURIComponent(proxyConfig.password)}@` : "";
       const protocol = proxyConfig.type || "http";
       const proxyUrl = `${protocol}://${auth}${proxyConfig.host}:${proxyConfig.port}`;
-      agent = new HttpsProxyAgent2(proxyUrl);
+      agent = new import_https_proxy_agent.HttpsProxyAgent(proxyUrl);
     }
-    const formData = new FormData();
+    const formData = new import_form_data.default();
     formData.append("media", buffer, {
       filename,
       contentType: "image/jpeg"
     });
-    const requestModule = url.startsWith("https") ? https2 : http2;
+    const requestModule = url.startsWith("https") ? https : http;
     return new Promise((resolve, reject) => {
       const requestOptions = {
         method: "POST",
@@ -20556,11 +20551,8 @@ var PreviewModal = class extends import_obsidian5.Modal {
     const copyBtn = buttonContainer.createEl("button", { text: "\u590D\u5236", cls: "mod-cta" });
     copyBtn.onclick = async () => {
       try {
-        const tempDiv = document.createElement("div");
+        const tempDiv = document.body.createDiv({ cls: "wechat-multi-publisher-copy-buffer" });
         tempDiv.replaceChildren((0, import_obsidian5.sanitizeHTMLToDom)(this.html));
-        tempDiv.style.position = "absolute";
-        tempDiv.style.left = "-9999px";
-        document.body.appendChild(tempDiv);
         const range = document.createRange();
         range.selectNodeContents(tempDiv);
         const selection = window.getSelection();
@@ -20579,13 +20571,13 @@ var PreviewModal = class extends import_obsidian5.Modal {
         }
         document.body.removeChild(tempDiv);
         selection == null ? void 0 : selection.removeAllRanges();
-        setTimeout(() => {
+        window.setTimeout(() => {
           copyBtn.textContent = "\u590D\u5236";
         }, 2e3);
       } catch (error) {
         console.error("Copy failed:", error);
         copyBtn.textContent = "\u590D\u5236\u5931\u8D25";
-        setTimeout(() => {
+        window.setTimeout(() => {
           copyBtn.textContent = "\u590D\u5236";
         }, 2e3);
       }
@@ -20610,10 +20602,8 @@ var PreviewModal = class extends import_obsidian5.Modal {
     contentEl.empty();
   }
   async exportLongImage() {
-    const root2 = document.createElement("div");
-    root2.style.cssText = "position:fixed;left:-100000px;top:0;width:717px;padding:20px;box-sizing:border-box;background:#fff;color:#333;overflow:visible;";
+    const root2 = document.body.createDiv({ cls: "wechat-multi-publisher-image-export" });
     root2.replaceChildren((0, import_obsidian5.sanitizeHTMLToDom)(this.html));
-    document.body.appendChild(root2);
     try {
       await new Promise((resolve) => window.setTimeout(resolve, 50));
       await this.waitForImages(root2);
@@ -20910,13 +20900,13 @@ var WeChatPublisherPlugin = class extends import_obsidian7.Plugin {
       (leaf) => new PublisherView(leaf, this)
     );
     this.addRibbonIcon("message-circle", "\u5FAE\u4FE1\u516C\u4F17\u53F7\u53D1\u5E03", () => {
-      this.activateView();
+      void this.activateView();
     });
     this.addCommand({
       id: "open-publisher",
       name: "\u6253\u5F00\u5FAE\u4FE1\u516C\u4F17\u53F7\u53D1\u5E03\u9762\u677F",
       callback: () => {
-        this.activateView();
+        void this.activateView();
       }
     });
     this.addSettingTab(new WeChatPublisherSettingTab(this.app, this));
@@ -21040,21 +21030,21 @@ var WeChatPublisherPlugin = class extends import_obsidian7.Plugin {
       }));
     }
     if (leaf) {
-      workspace.revealLeaf(leaf);
+      await workspace.revealLeaf(leaf);
     }
   }
   startAutoCheck() {
     if (this.statusCheckInterval) {
-      clearInterval(this.statusCheckInterval);
+      window.clearInterval(this.statusCheckInterval);
     }
-    this.statusCheckInterval = window.setInterval(async () => {
-      await this.checkAllAccountsStatus();
+    this.statusCheckInterval = window.setInterval(() => {
+      void this.checkAllAccountsStatus();
     }, this.settings.autoCheckInterval);
     this.registerInterval(this.statusCheckInterval);
   }
   stopAutoCheck() {
     if (this.statusCheckInterval) {
-      clearInterval(this.statusCheckInterval);
+      window.clearInterval(this.statusCheckInterval);
       this.statusCheckInterval = null;
     }
   }
