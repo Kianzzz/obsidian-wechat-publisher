@@ -1,4 +1,4 @@
-# WeChat Publisher for Obsidian
+# WeChat Multi Publisher for Obsidian
 
 一款 Obsidian 插件，支持将 Markdown 笔记**批量发布**到多个微信公众号草稿箱。
 
@@ -22,13 +22,13 @@
 ### 手动安装
 
 1. 下载最新的 [Release](../../releases)
-2. 解压到你的 Obsidian vault 的 `.obsidian/plugins/wechat-publisher/` 目录
-3. 在 Obsidian 设置 → 第三方插件中启用「WeChat Publisher」
+2. 解压到你的 Obsidian vault 的 `.obsidian/plugins/wechat-multi-publisher/` 目录
+3. 在 Obsidian 设置 → 第三方插件中启用「WeChat Multi Publisher」
 
 ### 目录结构
 
 ```
-.obsidian/plugins/wechat-publisher/
+.obsidian/plugins/wechat-multi-publisher/
 ├── main.js          # 插件主文件
 ├── styles.css       # 插件样式
 ├── manifest.json    # 插件元数据
@@ -41,7 +41,7 @@
 
 ### 1. 添加公众号
 
-1. 打开 Obsidian 设置 → WeChat Publisher
+1. 打开 Obsidian 设置 → WeChat Multi Publisher
 2. 点击「添加账号」
 3. 填入公众号的 **AppID** 和 **AppSecret**
    - 在[微信公众平台](https://mp.weixin.qq.com/) → 设置与开发 → 基本配置中获取
@@ -78,7 +78,7 @@ p {
 
 ## 使用方法
 
-1. 打开侧边栏的「WeChat Publisher」面板
+1. 打开侧边栏的「WeChat Multi Publisher」面板
 2. 打开你要发布的 Markdown 笔记
 3. 选择排版样式（可选）
 4. 上传封面图片（可选）

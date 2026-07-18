@@ -7,7 +7,7 @@ import { ThemeManager } from '../utils/theme-manager';
 import { getAccessToken, uploadImage, addDraft } from '../services/weixin-api';
 import { compressImage } from '../utils/image';
 
-export const VIEW_TYPE_PUBLISHER = 'wechat-publisher-view';
+export const VIEW_TYPE_PUBLISHER = 'wechat-multi-publisher-view';
 
 export class PublisherView extends ItemView {
 	plugin: WeChatPublisherPlugin;
@@ -41,7 +41,7 @@ export class PublisherView extends ItemView {
 	async onOpen() {
 		const container = this.containerEl.children[1];
 		container.empty();
-		container.addClass('wechat-publisher-view');
+		container.addClass('wechat-multi-publisher-view');
 
 		// 初始化主题管理器
 		this.themeManager.setThemesFolder(this.plugin.settings.themesFolder);

@@ -1,6 +1,6 @@
 {
-  "name": "obsidian-wechat-publisher",
-  "version": "2.3.0",
+  "name": "obsidian-wechat-multi-publisher",
+  "version": "2.3.1",
   "description": "Publish Markdown notes to multiple WeChat Official Accounts.",
   "main": "main.js",
   "scripts": {
@@ -12,6 +12,7 @@
     "obsidian",
     "plugin",
     "wechat",
+    "multi-account",
     "official-account"
   ],
   "author": "Kianzzz",

@@ -24,11 +24,11 @@ jobs:
         run: |
           test "${GITHUB_REF_NAME#v}" = "$(node -p "require('./manifest.json').version")"
       - name: Package plugin
-        run: zip wechat-publisher.zip main.js manifest.json styles.css
+        run: zip wechat-multi-publisher.zip main.js manifest.json styles.css
       - uses: softprops/action-gh-release@v2
         with:
           files: |
             main.js
             manifest.json
             styles.css
-            wechat-publisher.zip
+            wechat-multi-publisher.zip

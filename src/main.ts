@@ -84,7 +84,7 @@ export default class WeChatPublisherPlugin extends Plugin {
 
 	private secretId(accountId: string, kind: 'app-secret' | 'access-token' | 'proxy-password'): string {
 		const safeAccountId = accountId.toLowerCase().replace(/[^a-z0-9-]/g, '-');
-		return `wechat-publisher-${safeAccountId}-${kind}`;
+		return `wechat-multi-publisher-${safeAccountId}-${kind}`;
 	}
 
 	getAppSecret(account: WeChatAccount): string {

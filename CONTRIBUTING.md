@@ -10,7 +10,7 @@ For plugin conflicts, list the other plugin and its version, then test with only
 
 1. Run `npm install`.
 2. Run `npm run build`.
-3. Copy `main.js`, `manifest.json`, and `styles.css` into a test vault under `.obsidian/plugins/wechat-publisher/`.
+3. Copy `main.js`, `manifest.json`, and `styles.css` into a test vault under `.obsidian/plugins/wechat-multi-publisher/`.
 4. Reload Obsidian and test account migration, preview, copy, image upload, draft creation, and unload/reload.
 
 Do not commit `data.json`, credentials, generated backups, or `node_modules`.

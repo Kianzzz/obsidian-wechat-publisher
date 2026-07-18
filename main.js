@@ -19903,7 +19903,7 @@ function canvasToBlob(canvas, mimeType, quality) {
 }
 
 // src/views/publisher-view.ts
-var VIEW_TYPE_PUBLISHER = "wechat-publisher-view";
+var VIEW_TYPE_PUBLISHER = "wechat-multi-publisher-view";
 var PublisherView = class extends import_obsidian5.ItemView {
   // 发布汇总信息
   constructor(leaf, plugin2) {
@@ -19930,7 +19930,7 @@ var PublisherView = class extends import_obsidian5.ItemView {
   async onOpen() {
     const container = this.containerEl.children[1];
     container.empty();
-    container.addClass("wechat-publisher-view");
+    container.addClass("wechat-multi-publisher-view");
     this.themeManager.setThemesFolder(this.plugin.settings.themesFolder);
     await this.themeManager.loadThemes();
     this.render();
@@ -20941,7 +20941,7 @@ var WeChatPublisherPlugin = class extends import_obsidian7.Plugin {
   }
   secretId(accountId, kind) {
     const safeAccountId = accountId.toLowerCase().replace(/[^a-z0-9-]/g, "-");
-    return `wechat-publisher-${safeAccountId}-${kind}`;
+    return `wechat-multi-publisher-${safeAccountId}-${kind}`;
   }
   getAppSecret(account) {
     var _a;

@@ -1,7 +1,7 @@
 {
-  "id": "wechat-publisher",
-  "name": "WeChat Publisher",
-  "version": "2.3.0",
+  "id": "wechat-multi-publisher",
+  "name": "WeChat Multi Publisher",
+  "version": "2.3.1",
   "minAppVersion": "1.11.4",
   "description": "Publish Markdown notes to multiple WeChat Official Accounts.",
   "author": "Kianzzz",
