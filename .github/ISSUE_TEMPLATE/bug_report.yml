@@ -1,31 +1,31 @@
-name: Bug report
-description: Report a reproducible problem
-title: "[Bug]: "
+name: 问题报告
+description: 报告一个可以复现的 WeChatPB 问题
+title: "[问题] "
 labels: [bug]
 body:
   - type: markdown
     attributes:
-      value: Never post AppSecret, access tokens, proxy passwords, or private article content.
+      value: 请勿提交 AppSecret、访问令牌、代理密码或未发布的文章内容。
   - type: input
     id: versions
     attributes:
-      label: Versions
-      description: Obsidian version, WeChat Publisher version, and operating system
+      label: 版本信息
+      description: 请填写 Obsidian 版本、WeChatPB 版本和操作系统
     validations:
       required: true
   - type: textarea
     id: steps
     attributes:
-      label: Reproduction steps
+      label: 复现步骤
     validations:
       required: true
   - type: textarea
     id: expected
     attributes:
-      label: Expected behavior
+      label: 预期结果
     validations:
       required: true
   - type: textarea
     id: logs
     attributes:
-      label: Error message or sanitized logs
+      label: 错误信息或脱敏日志

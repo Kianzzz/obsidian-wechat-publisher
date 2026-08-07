@@ -18,9 +18,9 @@
   "author": "zhouxing",
   "repository": {
     "type": "git",
-    "url": "https://github.com/Kianzzz/obsidian-wechat-publisher.git"
+    "url": "https://github.com/Kianzzz/wechatPB.git"
   },
-  "bugs": "https://github.com/Kianzzz/obsidian-wechat-publisher/issues",
+  "bugs": "https://github.com/Kianzzz/wechatPB/issues",
   "license": "MIT",
   "devDependencies": {
     "@types/node": "^24.0.0",

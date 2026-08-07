@@ -1,4 +1,4 @@
-name: Release Obsidian plugin
+name: 发布 Obsidian 插件
 
 on:
   push:
@@ -17,13 +17,16 @@ jobs:
         with:
           node-version: 20
           cache: npm
-      - run: npm ci
-      - run: npm run build
-      - name: Verify tag matches manifest
+      - name: 安装依赖
+        run: npm ci
+      - name: 构建插件
+        run: npm run build
+      - name: 检查标签与插件版本一致
         shell: bash
         run: |
           test "${GITHUB_REF_NAME#v}" = "$(node -p "require('./manifest.json').version")"
-      - uses: softprops/action-gh-release@v2
+      - name: 创建 GitHub Release
+        uses: softprops/action-gh-release@v2
         with:
           files: |
             main.js

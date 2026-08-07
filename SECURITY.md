@@ -1,11 +1,15 @@
-# Security policy
+# 安全说明
 
-## Supported version
+## 支持范围
 
-Only the latest release is supported with security fixes.
+安全修复仅支持最新发布版本。报告问题前，请先确认你正在使用最新版 WeChatPB。
 
-## Reporting a vulnerability
+## 私下报告安全漏洞
 
-Please use GitHub's private vulnerability reporting for this repository. Do not include AppSecret, access tokens, proxy passwords, unpublished article content, or other private data in a public issue.
+请使用本仓库的 GitHub 私密漏洞报告功能，不要在公开问题中提交安全漏洞。
 
-The plugin stores AppSecret, access tokens, and proxy passwords through Obsidian SecretStorage. Publishing requests are sent to the WeChat Official Account API, directly or through the proxy explicitly configured by the user. Proxy tests also contact `api.ipify.org` to report the exit IP.
+报告内容请勿包含 AppSecret、访问令牌、代理密码、未发布的文章内容或其他私人数据。如需提供日志，请先完成脱敏。
+
+## 数据与网络
+
+WeChatPB 通过 Obsidian SecretStorage 保存 AppSecret、访问令牌和代理密码。发布请求会直接发送到微信公众号接口，或经过用户明确配置的代理。测试代理时还会请求 `api.ipify.org`，用于显示出口 IP。

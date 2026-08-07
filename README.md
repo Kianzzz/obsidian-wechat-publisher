@@ -1,163 +1,146 @@
-# WeChatPB for Obsidian
+<div align="center">
 
-Publish Markdown notes to the draft boxes of multiple WeChat Official Accounts from Obsidian.
+# WeChatPB
 
-> Desktop only: Windows, macOS, and Linux
+### 在 Obsidian 里完成公众号排版、多账号管理与草稿发布
 
-## Features
+无需离开笔记，也无需额外下载排版文件。打开文章、选择主题、预览效果，然后一次发布到多个微信公众号草稿箱。
 
-- Manage and publish to multiple WeChat Official Accounts in one operation.
-- Preview articles with 14 bundled Memoria themes or your own vault-based themes.
-- Upload, compress, and reuse cover images and note images.
-- Remove YAML frontmatter before publishing when desired.
-- Export the formatted article as a long PNG image.
-- Store AppSecret, access tokens, and proxy passwords in Obsidian SecretStorage.
-- Use optional HTTP or SOCKS5 proxies and retain local publishing history.
+**当前版本：2.4.0　｜　桌面端：Windows、macOS、Linux　｜　许可证：MIT**
 
-## Installation
+[下载最新版](https://github.com/Kianzzz/wechatPB/releases/latest) · [提交问题](https://github.com/Kianzzz/wechatPB/issues) · [安全反馈](SECURITY.md)
 
-Download the latest [GitHub release](../../releases), then place `main.js`, `manifest.json`, and `styles.css` in:
+</div>
+
+---
+
+## 它能做什么
+
+| 能力 | 说明 |
+| --- | --- |
+| 多账号发布 | 同时管理多个公众号，一次将文章发送到多个草稿箱 |
+| 开箱即用排版 | 内置 14 套主题，首次安装默认使用「绿白清简」，无需配置文件夹 |
+| 实时预览 | 发布前查看标题、正文、引用、代码块、图片等最终效果 |
+| 图片处理 | 自动压缩并上传正文图片，支持上传和保存默认封面 |
+| 长图导出 | 将排版后的全文导出为 PNG 图片并保存到当前笔记目录 |
+| 自定义主题 | 支持读取仓库中的 CSS 文件或包含 CSS 代码块的 Markdown 文件 |
+| AI 排版辅助 | 设置页提供排版规范和示例，可直接复制给 AI 设计新主题 |
+| 安全存储 | AppSecret、访问令牌和代理密码由 Obsidian SecretStorage 保存 |
+| 网络代理 | 支持 HTTP 与 SOCKS5 代理，可检查出口 IP 和账号连接状态 |
+| 发布记录 | 在本地保存每次发布结果，方便查找和排错 |
+
+## 三步开始使用
+
+### 1. 安装插件
+
+从 [最新版发布页面](https://github.com/Kianzzz/wechatPB/releases/latest) 下载以下三个文件：
+
+- `main.js`
+- `manifest.json`
+- `styles.css`
+
+将它们放进仓库中的插件目录：
 
 ```text
 .obsidian/plugins/wechat-multi-publisher/
 ```
 
-Enable **WeChatPB** in Obsidian under **Settings → Community plugins**.
+然后打开 Obsidian → 设置 → 第三方插件，启用「WeChatPB」。
 
-## Privacy and network access
+> 插件目录和内部标识继续保留 `wechat-multi-publisher`，这是为了让旧版本能够正常升级并保留已有设置，并不是尚未改名。
 
-The plugin contacts the WeChat Official Account API only when you test an account, check its status, upload media, or create a draft. Proxy tests may contact `api.ipify.org`. Article content and images are not sent to servers controlled by the plugin author. Credentials are stored with Obsidian SecretStorage and are not written to `data.json`.
+### 2. 添加公众号
 
-## 中文说明
+打开 Obsidian → 设置 → WeChatPB → 添加账号，填写公众号的 AppID 与 AppSecret。
 
-一款 Obsidian 插件，支持将 Markdown 笔记**批量发布**到多个微信公众号草稿箱。
+这些信息可在[微信公众平台](https://mp.weixin.qq.com/)的「设置与开发 → 基本配置」中获取。发布前还需要将当前服务器或代理的出口 IP 加入公众号 IP 白名单。
 
-> 支持 Windows / macOS / Linux 桌面端
+### 3. 排版并发布
 
-## 功能特性
+1. 打开一篇 Markdown 笔记。
+2. 打开侧边栏中的 WeChatPB 面板。
+3. 选择排版主题并点击「预览」。
+4. 选择封面和需要发布的公众号。
+5. 点击「发布」，文章会进入微信公众号草稿箱。
 
-- **多账号管理**：同时管理多个公众号，一键批量发布
-- **Memoria 排版库**：内置 14 款优化排版，新用户无需配置文件夹
-- **AI 自定义排版**：提供可一键复制给 AI 的 CSS 规范与示例
-- **封面图片**：支持上传封面图片，发布时自动压缩
-- **默认封面**：可在设置中保存一张默认封面
-- **实时预览**：发布前可预览排版效果
-- **长图导出**：将排版后的文章保存为 PNG 到当前笔记目录
-- **Frontmatter 处理**：可选择剥离 YAML frontmatter
-- **图片压缩上传**：自动将笔记中的图片压缩并上传到公众号素材库
-- **代理支持**：支持 SOCKS5 / HTTP 代理，解决网络访问问题
-- **发布历史**：记录每次发布结果，方便回溯
+你仍然可以在微信公众平台里继续编辑、检查并正式群发。
 
-## 安装
+## 内置排版主题
 
-### 手动安装
+首次安装会直接使用「绿白清简」。14 套主题已经打包在插件中，不需要下载本地 CSS，也不需要先点击“保存并应用”。
 
-1. 下载最新的 [Release](../../releases)
-2. 解压到你的 Obsidian vault 的 `.obsidian/plugins/wechat-multi-publisher/` 目录
-3. 在 Obsidian 设置 → 第三方插件中启用「WeChatPB」
+| 风格方向 | 主题 | 适合内容 |
+| --- | --- | --- |
+| 清爽品牌 | 绿白清简、蓝白案例 | 品牌文章、案例拆解、知识分享 |
+| 极简阅读 | 墨白极简、清墨留白 | 长文、随笔、教程 |
+| 编辑出版 | 赤红报刊、酒红书刊、赤红夹线 | 新闻、趋势、观点、书评 |
+| 卡片层级 | 靛蓝书签、靛蓝浮雕、青绿胶囊 | 清单、方法论、结构化内容 |
+| 强调标记 | 绿荧标记、蓝荧标记 | 教程、重点摘要、学习笔记 |
+| 氛围视觉 | 粉紫渐隐、青紫霓虹 | 创意、科技、年轻化内容 |
 
-### 目录结构
+「绿白清简」和「蓝白案例」的二级标题会按照文章顺序显示 `TITEL 01`、`TITEL 02`、`TITEL 03`……
 
-```
-.obsidian/plugins/wechat-multi-publisher/
-├── main.js          # 插件主文件
-├── styles.css       # 插件样式
-├── manifest.json    # 插件元数据
-└── data.json        # 运行时配置（自动生成，勿手动编辑）
-```
+## 使用自己的排版
 
-内置主题已打包进 `main.js`，安装 Release 中的三个文件即可使用；仓库内的 `themes/` 是主题源文件。
+内置主题足够直接使用。只有在需要学习或导入自己的排版时，才需要在设置中开启「启用自定义排版」。
 
-## 配置
+1. 在 Obsidian 仓库中创建一个文件夹，例如 `css-themes/`。
+2. 放入 `.css` 文件，或放入包含 CSS 代码块的 `.md` 文件。
+3. 在 WeChatPB 设置中选择该文件夹。
+4. 返回发布面板，即可选择自定义主题并预览。
 
-### 1. 添加公众号
-
-1. 打开 Obsidian 设置 → WeChatPB
-2. 点击「添加账号」
-3. 填入公众号的 **AppID** 和 **AppSecret**
-   - 在[微信公众平台](https://mp.weixin.qq.com/) → 设置与开发 → 基本配置中获取
-   - 需要将服务器 IP 添加到公众号的 IP 白名单中
-4. （可选）配置代理服务器
-
-### 2. 排版主题
-
-插件自带 14 款 Memoria 排版主题，默认使用「绿白清简」。新用户无需选择文件夹，也无需点击“保存并应用”。
-
-如果你要导入或学习自己的排版，可以在设置中开启「启用自定义排版」：
-
-1. 在 vault 中创建一个文件夹（如 `css-themes/`）
-2. 在其中放入 `.css` 文件或包含 CSS 代码块的 `.md` 文件
-3. 在插件设置中选择「自定义样式文件夹」
-
-设置页的「查看 AI 排版规范」会提供完整示例，可以直接复制给 AI，再补充品牌色、参考图片或文章类型。
-
-**CSS 文件格式：**
-
-直接使用 `.css` 文件，或者在 `.md` 文件中用代码块包裹：
+Markdown 主题文件可以这样编写：
 
 ````markdown
 # 我的自定义主题
 
 ```css
 .note-to-mp h1 {
-    color: #333;
-    border-bottom: 2px solid #07C160;
+    color: #333333;
+    border-bottom: 2px solid #07c160;
 }
 
 .note-to-mp p {
+    color: #555555;
     line-height: 1.8;
-    color: #555;
 }
 ```
 ````
 
-## 使用方法
+不知道如何写 CSS 时，可以在插件设置中打开「查看 AI 排版规范」，复制完整示例给 AI，再补充你的品牌色、文章类型和参考风格。
 
-1. 打开侧边栏的「WeChatPB」面板
-2. 打开你要发布的 Markdown 笔记
-3. 选择排版样式（可选）
-4. 上传封面图片（可选）
-5. 勾选要发布到的公众号
-6. 点击「预览」查看效果，或直接点击「发布」
+## 使用前须知
 
-文章会发布到公众号的**草稿箱**中，你可以在微信公众平台中进一步编辑和发布。
-
-## 内置主题预览
-
-| 主题名称 | 风格描述 |
-|---------|---------|
-| 绿白清简 | 绿色与白色的品牌留白，默认主题；二级标题显示 TITEL 01、02… |
-| 蓝白案例 | 蓝白卡片与数据感标题；二级标题显示 TITEL 01、02… |
-| 墨白极简 | 克制的黑白灰层级 |
-| 赤红报刊 | 高对比赤红报刊感 |
-| 酒红书刊 | 酒红色书刊气质 |
-| 靛蓝书签 | 靛蓝层级书签 |
-| 赤红夹线 | 红色夹线与纸面感 |
-| 靛蓝浮雕 | 靛蓝卡片与轻浮雕 |
-| 清墨留白 | 清淡墨色与大留白 |
-| 粉紫渐隐 | 粉紫渐变与柔和分隔 |
-| 青绿胶囊 | 青绿色胶囊标题 |
-| 绿荧标记 | 绿色荧光重点标记 |
-| 蓝荧标记 | 蓝色高亮重点标记 |
-| 青紫霓虹 | 青紫暗色霓虹 |
-
-## 注意事项
-
-- 需要已认证的微信公众号（服务号或已认证的订阅号）
-- AppSecret 请妥善保管，不要泄露
-- AppSecret、Access Token 和代理密码保存在 Obsidian SecretStorage 中，不写入 `data.json`
-- 发布需要将服务器/代理 IP 添加到公众号的 IP 白名单
-- 图片会自动压缩上传至公众号素材库
+- 插件仅支持 Obsidian 桌面端。
+- 建议使用已认证的微信公众号；不同账号类型拥有的接口权限可能不同。
+- AppSecret、访问令牌和代理密码不会写入 `data.json`，请仍然避免在截图、日志和公开问题中泄露它们。
+- 正文图片会在发布时压缩并上传到微信公众号素材库。
+- 如果「预览」没有反应，请先确认当前打开的是 Markdown 笔记。
+- 如果「发布」按钮不可点击，请先完成账号配置、连接检测并勾选至少一个可用账号。
 
 ## 隐私与网络请求
 
-插件只在你测试账号、检测状态或发布草稿时请求微信公众平台 API；测试代理或查看出口 IP 时会请求 `api.ipify.org`。若配置代理，相应请求会经过该代理。文章正文和图片不会上传到作者控制的服务器。
+插件只会在测试账号、检查状态、上传素材或创建草稿时请求微信公众平台接口；测试代理或查看出口 IP 时会请求 `api.ipify.org`。如果你配置了代理，相应请求会经过该代理。
 
-## 开发
+文章正文和图片不会发送到插件作者控制的服务器。账号密钥由 Obsidian SecretStorage 保存在本机。
+
+## 开发与反馈
+
+本地构建：
 
 ```bash
 npm install
 npm run build
 ```
 
-构建会生成 Obsidian 运行所需的 `main.js`。提交问题前请阅读 [CONTRIBUTING.md](CONTRIBUTING.md)；安全问题请按 [SECURITY.md](SECURITY.md) 的方式报告。
+发现问题时，请通过 [问题页面](https://github.com/Kianzzz/wechatPB/issues) 提交，并附上 Obsidian 版本、WeChatPB 版本、操作系统、复现步骤和已经脱敏的错误信息。
+
+参与开发前请阅读[贡献指南](CONTRIBUTING.md)；安全漏洞请按照[安全说明](SECURITY.md)私下反馈。
+
+---
+
+<div align="center">
+
+如果 WeChatPB 帮你减少了公众号排版和多账号发布的重复工作，欢迎点亮一个 Star。
+
+</div>
