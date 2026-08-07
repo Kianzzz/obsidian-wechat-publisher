@@ -35,6 +35,9 @@ function applyStyleToElement(element: HTMLElement, cssRoot: postcss.Root) {
 
 	// Walk through CSS rules
 	cssRoot.walkRules((rule) => {
+		// Responsive and other at-rules cannot survive WeChat's inline-style paste.
+		// Ignoring them is safer than applying mobile overrides unconditionally.
+		if (hasAtRuleParent(rule)) return;
 		const selector = processPseudoSelector(rule.selector);
 
 		try {
@@ -74,9 +77,9 @@ function applyStyleToElement(element: HTMLElement, cssRoot: postcss.Root) {
 					targetElement.style.setProperty(decl.prop, decl.value, decl.important ? 'important' : '');
 				});
 			}
-		} catch (err: any) {
+		} catch (err: unknown) {
 			// Ignore invalid selector errors
-			if (err.message && err.message.includes('is not a valid selector')) {
+			if (err instanceof Error && err.message.includes('is not a valid selector')) {
 				return;
 			}
 			console.warn('CSS selector error:', err);
@@ -89,6 +92,15 @@ function applyStyleToElement(element: HTMLElement, cssRoot: postcss.Root) {
 		applyStyleToElement(child as HTMLElement, cssRoot);
 		child = child.nextElementSibling;
 	}
+}
+
+function hasAtRuleParent(rule: postcss.Rule): boolean {
+	let parent: postcss.Node | undefined = rule.parent;
+	while (parent) {
+		if (parent.type === 'atrule') return true;
+		parent = parent.parent;
+	}
+	return false;
 }
 
 /**

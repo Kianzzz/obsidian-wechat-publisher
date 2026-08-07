@@ -170,6 +170,10 @@ ${html}
  * MarkedFormatter - Uses marked.js for professional Markdown parsing
  * This provides better handling of code blocks, blockquotes, and other complex Markdown elements
  */
+export interface FormatterOptions {
+	headingLabel?: string;
+}
+
 export class MarkedFormatter {
 	private static markedInstance: typeof marked | null = null;
 
@@ -286,7 +290,7 @@ export class MarkedFormatter {
 	/**
 	 * Convert markdown to WeChat-compatible HTML with optional custom CSS
 	 */
-	static async markdownToHtml(markdown: string, customCSS?: string): Promise<string> {
+	static async markdownToHtml(markdown: string, customCSS?: string, options: FormatterOptions = {}): Promise<string> {
 		const markedLib = this.initMarked();
 
 		// Parse markdown to HTML
@@ -297,6 +301,7 @@ export class MarkedFormatter {
 <section class="note-to-mp" style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; font-size: 15px; color: #333; line-height: 1.75; word-wrap: break-word; word-break: break-word;">
 ${html}
 </section>`.trim();
+		html = this.decorateHeadings(html, options);
 
 		// Apply custom CSS as inline styles if provided
 		if (customCSS) {
@@ -314,7 +319,7 @@ ${html}
 	/**
 	 * Synchronous version for compatibility (uses cached parsing if possible)
 	 */
-	static markdownToHtmlSync(markdown: string, customCSS?: string): string {
+	static markdownToHtmlSync(markdown: string, customCSS?: string, options: FormatterOptions = {}): string {
 		const markedLib = this.initMarked();
 
 		// Use synchronous parse
@@ -325,6 +330,7 @@ ${html}
 <section class="note-to-mp" style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; font-size: 15px; color: #333; line-height: 1.75; word-wrap: break-word; word-break: break-word;">
 ${html}
 </section>`.trim();
+		html = this.decorateHeadings(html, options);
 
 		// Apply custom CSS as inline styles if provided
 		if (customCSS) {
@@ -373,6 +379,22 @@ hr { border: none; border-top: 1px solid #e0e0e0; margin: 2em 0; }
 			console.error('Failed to apply default styles:', error);
 			return html;
 		}
+	}
+
+	private static decorateHeadings(html: string, options: FormatterOptions): string {
+		const headingLabel = options.headingLabel?.trim();
+		if (!headingLabel) return html;
+
+		const container = document.createElement('div');
+		container.append(sanitizeHTMLToDom(html));
+		const headings = Array.from(container.querySelectorAll('h2'));
+		for (const [index, heading] of headings.entries()) {
+			const label = document.createElement('span');
+			label.className = 'wechatpb-heading-label';
+			label.textContent = `${headingLabel} ${String(index + 1).padStart(2, '0')}`;
+			heading.prepend(label);
+		}
+		return container.innerHTML;
 	}
 
 	static sanitize(html: string): string {

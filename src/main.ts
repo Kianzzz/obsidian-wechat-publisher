@@ -1,8 +1,10 @@
-import { App, Plugin, PluginSettingTab, Setting, Notice, WorkspaceLeaf, FuzzySuggestModal, normalizePath } from 'obsidian';
+import { App, Plugin, PluginSettingTab, Setting, Notice, WorkspaceLeaf, FuzzySuggestModal, Modal, normalizePath } from 'obsidian';
 import { PluginSettings, DEFAULT_SETTINGS, WeChatAccount, ResolvedWeChatAccount, ResolvedProxyConfig } from './types';
 import { PublisherView, VIEW_TYPE_PUBLISHER } from './views/publisher-view';
 import { AccountModal } from './modals/account-modal';
 import { getAccessToken } from './services/weixin-api';
+import { DEFAULT_BUILTIN_THEME } from './builtin-themes';
+import { CUSTOM_THEME_AI_GUIDE } from './custom-theme-guide';
 
 // 文件夹选择模态框
 class FolderSuggestModal extends FuzzySuggestModal<string> {
@@ -29,6 +31,39 @@ class FolderSuggestModal extends FuzzySuggestModal<string> {
 	}
 }
 
+class CustomThemeGuideModal extends Modal {
+	onOpen(): void {
+		const { contentEl } = this;
+		contentEl.empty();
+		contentEl.addClass('wechatpb-theme-guide-modal');
+		contentEl.createEl('h2', { text: 'AI 自定义排版示例' });
+		contentEl.createEl('p', {
+			text: '复制下面的完整规范发给 AI，再补充你的参考图片、品牌颜色或文章类型。AI 输出的 CSS 可以保存为 .css 文件，或放进 Markdown 的 css 代码块。'
+		});
+		const guide = contentEl.createEl('textarea', { cls: 'wechatpb-theme-guide-content' });
+		guide.value = CUSTOM_THEME_AI_GUIDE;
+		guide.readOnly = true;
+
+		const actions = contentEl.createDiv({ cls: 'modal-button-container' });
+		const copyButton = actions.createEl('button', { text: '复制给 AI', cls: 'mod-cta' });
+		copyButton.onclick = async () => {
+			try {
+				await navigator.clipboard.writeText(CUSTOM_THEME_AI_GUIDE);
+				copyButton.textContent = '已复制';
+				window.setTimeout(() => copyButton.textContent = '复制给 AI', 1800);
+			} catch (error) {
+				console.error('Failed to copy custom theme guide:', error);
+				new Notice('复制失败，请在示例框中全选复制');
+			}
+		};
+		actions.createEl('button', { text: '关闭', cls: 'mod-cancel' }).onclick = () => this.close();
+	}
+
+	onClose(): void {
+		this.contentEl.empty();
+	}
+}
+
 export default class WeChatPublisherPlugin extends Plugin {
 	settings: PluginSettings;
 	statusCheckInterval: number | null = null;
@@ -43,14 +78,14 @@ export default class WeChatPublisherPlugin extends Plugin {
 		);
 
 		// Add ribbon icon
-		this.addRibbonIcon('message-circle', '微信公众号发布', () => {
+		this.addRibbonIcon('message-circle', 'WeChatPB', () => {
 			void this.activateView();
 		});
 
 		// Add command to open publisher
 		this.addCommand({
 			id: 'open-publisher',
-			name: '打开微信公众号发布面板',
+			name: '打开 WeChatPB 发布面板',
 			callback: () => {
 				void this.activateView();
 			}
@@ -73,7 +108,11 @@ export default class WeChatPublisherPlugin extends Plugin {
 			...DEFAULT_SETTINGS,
 			...(saved ?? {}),
 			accounts: saved?.accounts ?? [],
-			publishHistory: saved?.publishHistory ?? []
+			publishHistory: saved?.publishHistory ?? [],
+			customThemesEnabled: saved?.customThemesEnabled ?? Boolean(saved?.themesFolder),
+			defaultTheme: !saved?.defaultTheme || saved.defaultTheme === '默认'
+				? DEFAULT_BUILTIN_THEME
+				: saved.defaultTheme
 		};
 		await this.migrateLegacySecrets();
 	}
@@ -316,61 +355,59 @@ class WeChatPublisherSettingTab extends PluginSettingTab {
 					this.plugin.startAutoCheck();
 				}));
 
-		// CSS themes folder
+		new Setting(containerEl).setName('排版样式').setHeading();
+
 		new Setting(containerEl)
-			.setName('CSS 样式文件夹')
-			.setDesc('点击下方按钮选择文件夹，或手动输入路径')
-			.addText(text => text
-				.setPlaceholder('点击下方"选择文件夹"按钮')
-				.setValue(this.plugin.settings.themesFolder)
-				.onChange((value) => {
-					this.plugin.settings.themesFolder = normalizePath(value);
-				}))
+			.setName('Memoria 内置排版')
+			.setDesc('已内置 14 套优化排版，新用户无需选择文件夹或保存应用，默认使用“绿白清简”。')
 			.addButton(button => button
-				.setButtonText('选择文件夹')
-				.onClick(async () => {
-					// 创建文件夹选择模态框
-					const folders = this.getAllFolders(this.app.vault.getRoot());
-					const folderPaths = folders.map(f => f.path).sort();
+				.setButtonText('查看 AI 排版规范')
+				.onClick(() => new CustomThemeGuideModal(this.app).open()));
 
-					// 创建简单的选择界面
-					const modal = new FolderSuggestModal(this.app, folderPaths, async (selectedPath) => {
-						this.plugin.settings.themesFolder = selectedPath;
-						await this.plugin.saveSettings();
-
-						// 刷新显示
-						this.display();
-
-						// 刷新所有发布视图
-						const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_PUBLISHER);
-						for (const leaf of leaves) {
-							const view = leaf.view as PublisherView;
-							if (view) {
-								view.themeManager.setThemesFolder(selectedPath);
-								await view.themeManager.loadThemes();
-								view.render();
-							}
-						}
-					});
-					modal.open();
-				}))
-			.addButton(button => button
-				.setButtonText('保存并应用')
-				.setCta()
-				.onClick(async () => {
+		new Setting(containerEl)
+			.setName('启用自定义排版')
+			.setDesc('仅在你要导入或让 AI 设计自己的 CSS 排版时开启。关闭时只显示 Memoria 内置排版。')
+			.addToggle(toggle => toggle
+				.setValue(this.plugin.settings.customThemesEnabled)
+				.onChange(async enabled => {
+					this.plugin.settings.customThemesEnabled = enabled;
 					await this.plugin.saveSettings();
-
-					// Refresh all publisher views
-					const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_PUBLISHER);
-					for (const leaf of leaves) {
-						const view = leaf.view as PublisherView;
-						if (view) {
-							view.themeManager.setThemesFolder(this.plugin.settings.themesFolder);
-							await view.themeManager.loadThemes();
-							view.render();
-						}
-					}
+					await this.refreshPublisherViews();
+					this.display();
 				}));
+
+		if (this.plugin.settings.customThemesEnabled) {
+			new Setting(containerEl)
+				.setName('自定义样式文件夹')
+				.setDesc('选择库内包含 .css 文件或 css 代码块 Markdown 的文件夹。选择后立即保存并应用。')
+				.addText(text => text
+					.setPlaceholder('例如：styles/wechat')
+					.setValue(this.plugin.settings.themesFolder)
+					.onChange(value => {
+						this.plugin.settings.themesFolder = normalizePath(value);
+					}))
+				.addButton(button => button
+					.setButtonText('选择文件夹')
+					.onClick(() => {
+						const folders = this.getAllFolders(this.app.vault.getRoot());
+						const folderPaths = folders.map(folder => folder.path).sort();
+						new FolderSuggestModal(this.app, folderPaths, async selectedPath => {
+							this.plugin.settings.themesFolder = selectedPath;
+							await this.plugin.saveSettings();
+							await this.refreshPublisherViews();
+							this.display();
+							new Notice('自定义排版已加载');
+						}).open();
+					}))
+				.addButton(button => button
+					.setButtonText('应用路径')
+					.setCta()
+					.onClick(async () => {
+						await this.plugin.saveSettings();
+						await this.refreshPublisherViews();
+						new Notice('自定义排版已应用');
+					}));
+		}
 
 		// Account management section
 		new Setting(containerEl).setName('公众号账号').setHeading();
@@ -395,6 +432,19 @@ class WeChatPublisherSettingTab extends PluginSettingTab {
 		// List existing accounts
 		for (const account of this.plugin.settings.accounts) {
 			this.displayAccountSetting(containerEl, account);
+		}
+	}
+
+	private async refreshPublisherViews(): Promise<void> {
+		const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_PUBLISHER);
+		for (const leaf of leaves) {
+			const view = leaf.view as PublisherView;
+			view.themeManager.setThemesFolder(this.plugin.settings.themesFolder);
+			view.themeManager.setCustomThemesEnabled(this.plugin.settings.customThemesEnabled);
+			await view.themeManager.loadThemes();
+			const selected = view.themeManager.getTheme(view.selectedTheme) ?? view.themeManager.getDefaultTheme();
+			view.selectedTheme = selected.name;
+			view.render();
 		}
 	}
 

@@ -1,4 +1,4 @@
-# WeChat Multi Publisher for Obsidian
+# WeChatPB for Obsidian
 
 Publish Markdown notes to the draft boxes of multiple WeChat Official Accounts from Obsidian.
 
@@ -7,7 +7,7 @@ Publish Markdown notes to the draft boxes of multiple WeChat Official Accounts f
 ## Features
 
 - Manage and publish to multiple WeChat Official Accounts in one operation.
-- Preview articles with 13 bundled CSS themes or your own vault-based themes.
+- Preview articles with 14 bundled Memoria themes or your own vault-based themes.
 - Upload, compress, and reuse cover images and note images.
 - Remove YAML frontmatter before publishing when desired.
 - Export the formatted article as a long PNG image.
@@ -22,7 +22,7 @@ Download the latest [GitHub release](../../releases), then place `main.js`, `man
 .obsidian/plugins/wechat-multi-publisher/
 ```
 
-Enable **WeChat Multi Publisher** in Obsidian under **Settings → Community plugins**.
+Enable **WeChatPB** in Obsidian under **Settings → Community plugins**.
 
 ## Privacy and network access
 
@@ -37,7 +37,8 @@ The plugin contacts the WeChat Official Account API only when you test an accoun
 ## 功能特性
 
 - **多账号管理**：同时管理多个公众号，一键批量发布
-- **CSS 排版主题**：内置 13 款精选排版样式，也可自定义 CSS 主题
+- **Memoria 排版库**：内置 14 款优化排版，新用户无需配置文件夹
+- **AI 自定义排版**：提供可一键复制给 AI 的 CSS 规范与示例
 - **封面图片**：支持上传封面图片，发布时自动压缩
 - **默认封面**：可在设置中保存一张默认封面
 - **实时预览**：发布前可预览排版效果
@@ -53,7 +54,7 @@ The plugin contacts the WeChat Official Account API only when you test an accoun
 
 1. 下载最新的 [Release](../../releases)
 2. 解压到你的 Obsidian vault 的 `.obsidian/plugins/wechat-multi-publisher/` 目录
-3. 在 Obsidian 设置 → 第三方插件中启用「WeChat Multi Publisher」
+3. 在 Obsidian 设置 → 第三方插件中启用「WeChatPB」
 
 ### 目录结构
 
@@ -71,20 +72,24 @@ The plugin contacts the WeChat Official Account API only when you test an accoun
 
 ### 1. 添加公众号
 
-1. 打开 Obsidian 设置 → WeChat Multi Publisher
+1. 打开 Obsidian 设置 → WeChatPB
 2. 点击「添加账号」
 3. 填入公众号的 **AppID** 和 **AppSecret**
    - 在[微信公众平台](https://mp.weixin.qq.com/) → 设置与开发 → 基本配置中获取
    - 需要将服务器 IP 添加到公众号的 IP 白名单中
 4. （可选）配置代理服务器
 
-### 2. 配置 CSS 主题
+### 2. 排版主题
 
-插件自带 13 款排版主题，开箱即用。你也可以添加自定义主题：
+插件自带 14 款 Memoria 排版主题，默认使用「绿白清简」。新用户无需选择文件夹，也无需点击“保存并应用”。
+
+如果你要导入或学习自己的排版，可以在设置中开启「启用自定义排版」：
 
 1. 在 vault 中创建一个文件夹（如 `css-themes/`）
 2. 在其中放入 `.css` 文件或包含 CSS 代码块的 `.md` 文件
-3. 在插件设置中配置「CSS 文件夹路径」指向该文件夹
+3. 在插件设置中选择「自定义样式文件夹」
+
+设置页的「查看 AI 排版规范」会提供完整示例，可以直接复制给 AI，再补充品牌色、参考图片或文章类型。
 
 **CSS 文件格式：**
 
@@ -94,12 +99,12 @@ The plugin contacts the WeChat Official Account API only when you test an accoun
 # 我的自定义主题
 
 ```css
-h1 {
+.note-to-mp h1 {
     color: #333;
     border-bottom: 2px solid #07C160;
 }
 
-p {
+.note-to-mp p {
     line-height: 1.8;
     color: #555;
 }
@@ -108,7 +113,7 @@ p {
 
 ## 使用方法
 
-1. 打开侧边栏的「WeChat Multi Publisher」面板
+1. 打开侧边栏的「WeChatPB」面板
 2. 打开你要发布的 Markdown 笔记
 3. 选择排版样式（可选）
 4. 上传封面图片（可选）
@@ -121,19 +126,20 @@ p {
 
 | 主题名称 | 风格描述 |
 |---------|---------|
-| Apple极简-黑 | 苹果风格极简排版，黑色主调 |
-| 清水极简-黑 | 清爽简约风格 |
-| Nikkei-红 | 日经新闻风格，红色点缀 |
-| 流光底线-金蓝 | 金蓝渐变底线装饰 |
-| 层级书签-蓝 | 书签式层级标题，蓝色系 |
-| 浮雕卡片-靛蓝 | 卡片式浮雕效果 |
-| 霓虹暗底-青紫 | 暗色背景霓虹风格 |
-| 书刊居中-酒红 | 书刊式居中排版 |
-| 渐隐底线-粉紫 | 渐隐底线装饰，粉紫色系 |
-| 胶囊药丸-绿 | 胶囊标签风格 |
-| 报刊夹线-红 | 报纸夹线风格 |
-| 荧光马克-绿 | 荧光笔标记效果，绿色 |
-| 荧光马克-蓝 | 荧光笔标记效果，蓝色 |
+| 绿白清简 | 绿色与白色的品牌留白，默认主题；二级标题显示 TITEL 01、02… |
+| 蓝白案例 | 蓝白卡片与数据感标题；二级标题显示 TITEL 01、02… |
+| 墨白极简 | 克制的黑白灰层级 |
+| 赤红报刊 | 高对比赤红报刊感 |
+| 酒红书刊 | 酒红色书刊气质 |
+| 靛蓝书签 | 靛蓝层级书签 |
+| 赤红夹线 | 红色夹线与纸面感 |
+| 靛蓝浮雕 | 靛蓝卡片与轻浮雕 |
+| 清墨留白 | 清淡墨色与大留白 |
+| 粉紫渐隐 | 粉紫渐变与柔和分隔 |
+| 青绿胶囊 | 青绿色胶囊标题 |
+| 绿荧标记 | 绿色荧光重点标记 |
+| 蓝荧标记 | 蓝色高亮重点标记 |
+| 青紫霓虹 | 青紫暗色霓虹 |
 
 ## 注意事项
 

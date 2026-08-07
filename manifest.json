@@ -1,10 +1,10 @@
 {
   "id": "wechat-multi-publisher",
-  "name": "WeChat Multi Publisher",
-  "version": "2.3.2",
+  "name": "WeChatPB",
+  "version": "2.4.0",
   "minAppVersion": "1.11.4",
   "description": "Publish Markdown notes to multiple WeChat Official Accounts.",
-  "author": "Kianzzz",
+  "author": "zhouxing",
   "authorUrl": "https://github.com/Kianzzz",
   "isDesktopOnly": true
 }

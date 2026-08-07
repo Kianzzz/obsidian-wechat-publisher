@@ -49,6 +49,7 @@ export interface PluginSettings {
 	maxConcurrent: number;
 	autoCheckInterval: number;
 	themesFolder: string;      // CSS主题文件夹路径
+	customThemesEnabled: boolean;
 	defaultTheme: string;      // 默认选中的主题名称
 	excludeFrontmatter: boolean;
 	defaultCoverImage: string;
@@ -60,7 +61,8 @@ export const DEFAULT_SETTINGS: PluginSettings = {
 	maxConcurrent: 3,
 	autoCheckInterval: 3600000, // 1 hour
 	themesFolder: '',
-	defaultTheme: '默认',
+	customThemesEnabled: false,
+	defaultTheme: '绿白清简',
 	excludeFrontmatter: false,
 	defaultCoverImage: ''
 };

@@ -1,5 +1,5 @@
 import { App, TFile, TFolder, Notice, normalizePath } from 'obsidian';
-import { BUILTIN_THEME_DOCUMENTS } from '../builtin-themes';
+import { BUILTIN_THEME_DOCUMENTS, BUILTIN_THEME_REFINEMENT, DEFAULT_BUILTIN_THEME } from '../builtin-themes';
 
 export interface Theme {
 	name: string;           // 显示名称
@@ -7,12 +7,17 @@ export interface Theme {
 	css: string;           // CSS内容
 	path: string;          // 完整路径
 	builtin?: boolean;
+	description?: string;
+	accent?: string;
+	aliases?: string[];
+	headingLabel?: string;
 }
 
 export class ThemeManager {
 	app: App;
 	themes: Theme[] = [];
 	themesFolder: string = '';
+	customThemesEnabled: boolean = false;
 
 	constructor(app: App) {
 		this.app = app;
@@ -25,19 +30,27 @@ export class ThemeManager {
 		this.themesFolder = folderPath;
 	}
 
+	setCustomThemesEnabled(enabled: boolean) {
+		this.customThemesEnabled = enabled;
+	}
+
 	/**
 	 * 加载所有CSS主题
 	 */
 	async loadThemes(): Promise<Theme[]> {
-		this.themes = BUILTIN_THEME_DOCUMENTS.map(({ name, content }) => ({
+		this.themes = BUILTIN_THEME_DOCUMENTS.map(({ name, content, description, accent, legacyNames, headingLabel }) => ({
 			name,
 			filename: name,
-			css: this.extractCss(content),
+			css: `${this.extractCss(content)}\n\n${BUILTIN_THEME_REFINEMENT}`,
 			path: `builtin:${name}`,
-			builtin: true
+			builtin: true,
+			description,
+			accent,
+			aliases: legacyNames,
+			headingLabel
 		})).filter(theme => theme.css.length > 0);
 
-		if (!this.themesFolder) {
+		if (!this.customThemesEnabled || !this.themesFolder) {
 			return this.themes;
 		}
 
@@ -99,8 +112,9 @@ export class ThemeManager {
 				}
 			}
 
-			if (this.themes.length > 0) {
-				new Notice(`成功加载 ${this.themes.length} 个主题`, 3000);
+			const customThemeCount = this.themes.filter(theme => !theme.builtin).length;
+			if (customThemeCount > 0) {
+				new Notice(`已加载 ${customThemeCount} 个自定义主题`, 3000);
 			} else {
 				new Notice(`文件夹 "${cleanPath}" 中没有找到 CSS 文件或包含 CSS 代码块的 MD 文件`, 5000);
 			}
@@ -121,7 +135,7 @@ export class ThemeManager {
 	 * 根据名称获取主题
 	 */
 	getTheme(name: string): Theme | undefined {
-		return this.themes.find(t => t.name === name || t.filename === name);
+		return this.themes.find(t => t.name === name || t.filename === name || t.aliases?.includes(name));
 	}
 
 	/**
@@ -131,15 +145,14 @@ export class ThemeManager {
 		return this.themes.map(t => t.name);
 	}
 
+	getThemes(): readonly Theme[] {
+		return this.themes;
+	}
+
 	/**
 	 * 获取默认主题
 	 */
 	getDefaultTheme(): Theme {
-		return {
-			name: '默认',
-			filename: 'default',
-			css: '',
-			path: ''
-		};
+		return this.getTheme(DEFAULT_BUILTIN_THEME) ?? this.themes[0];
 	}
 }

@@ -15,7 +15,7 @@ export class PublisherView extends ItemView {
 	coverImage: { path?: string; base64?: string } | null = null;
 	publishProgress: Map<string, PublishProgress> = new Map();
 	isPublishing: boolean = false;
-	selectedTheme: string = '默认';     // 当前选中的主题
+	selectedTheme: string = '绿白清简';     // 当前选中的主题
 	themeManager: ThemeManager;
 	publishSummary: { successCount: number; failCount: number } | null = null; // 发布汇总信息
 
@@ -31,7 +31,7 @@ export class PublisherView extends ItemView {
 	}
 
 	getDisplayText(): string {
-		return '微信发布';
+		return 'WeChatPB';
 	}
 
 	getIcon(): string {
@@ -45,7 +45,14 @@ export class PublisherView extends ItemView {
 
 		// 初始化主题管理器
 		this.themeManager.setThemesFolder(this.plugin.settings.themesFolder);
+		this.themeManager.setCustomThemesEnabled(this.plugin.settings.customThemesEnabled);
 		await this.themeManager.loadThemes();
+		const initialTheme = this.themeManager.getTheme(this.plugin.settings.defaultTheme) ?? this.themeManager.getDefaultTheme();
+		this.selectedTheme = initialTheme.name;
+		if (this.plugin.settings.defaultTheme !== initialTheme.name) {
+			this.plugin.settings.defaultTheme = initialTheme.name;
+			await this.plugin.saveSettings();
+		}
 
 		this.render();
 	}
@@ -60,7 +67,7 @@ export class PublisherView extends ItemView {
 
 		// Header
 		const header = container.createDiv({ cls: 'publisher-header' });
-		header.createEl('h3', { text: '微信公众号发布' });
+		header.createEl('h3', { text: 'WeChatPB · 微信公众号发布' });
 
 		// Account selection
 		this.renderAccountSelection(container);
@@ -174,25 +181,27 @@ export class PublisherView extends ItemView {
 		// Create select element
 		const select = controlRow.createEl('select', { cls: 'theme-select' });
 
-		// Add default theme option
-		const defaultOption = select.createEl('option', { value: '默认', text: '默认' });
-		if (this.selectedTheme === '默认') {
-			defaultOption.selected = true;
-		}
+		const themes = this.themeManager.getThemes();
+		const builtinGroup = select.createEl('optgroup', { attr: { label: 'Memoria 内置排版' } });
+		const customThemes = themes.filter(theme => !theme.builtin);
+		const customGroup = customThemes.length > 0
+			? select.createEl('optgroup', { attr: { label: '自定义排版' } })
+			: null;
 
-		// Add custom themes
-		const themeNames = this.themeManager.getThemeNames();
-		for (const themeName of themeNames) {
-			const option = select.createEl('option', { value: themeName, text: themeName });
-			if (this.selectedTheme === themeName) {
-				option.selected = true;
-			}
+		for (const theme of themes) {
+			const parent = theme.builtin ? builtinGroup : customGroup;
+			if (!parent) continue;
+			const option = parent.createEl('option', { value: theme.name, text: theme.name });
+			option.selected = this.selectedTheme === theme.name;
 		}
 
 		// Handle selection change
-		select.onchange = () => {
+		select.onchange = async () => {
 			this.selectedTheme = select.value;
+			this.plugin.settings.defaultTheme = this.selectedTheme;
+			await this.plugin.saveSettings();
 			new Notice(`已选择样式：${this.selectedTheme}`);
+			this.render();
 		};
 
 		// Refresh button
@@ -203,19 +212,22 @@ export class PublisherView extends ItemView {
 		refreshBtn.onclick = async () => {
 			// Reload themes
 			this.themeManager.setThemesFolder(this.plugin.settings.themesFolder);
+			this.themeManager.setCustomThemesEnabled(this.plugin.settings.customThemesEnabled);
 			await this.themeManager.loadThemes();
 			new Notice('主题列表已刷新');
 			this.render();
 		};
 
-		// Show hint if no custom themes
-		if (themeNames.length === 0 && this.plugin.settings.themesFolder) {
-			section.createDiv({ cls: 'theme-hint', text: 'CSS 文件夹中未找到主题，请点击“刷新”重新加载' });
-		} else if (!this.plugin.settings.themesFolder) {
-			section.createDiv({ cls: 'theme-hint', text: '可在设置中配置自定义 CSS 文件夹' });
-		} else if (themeNames.length > 0) {
-			section.createDiv({ cls: 'theme-hint', text: `已加载 ${themeNames.length} 个主题` });
-		}
+		const selected = this.themeManager.getTheme(this.selectedTheme);
+		const themeHint = section.createDiv({ cls: 'theme-hint' });
+		themeHint.createSpan({ cls: 'theme-color-dot', attr: { style: `--theme-accent: ${selected?.accent ?? '#64748b'}` } });
+		themeHint.createSpan({
+			text: selected?.description ?? 'Memoria 内置排版已自动加载，无需设置本地文件夹'
+		});
+		section.createDiv({
+			cls: 'theme-library-hint',
+			text: `Memoria 已内置 ${themes.filter(theme => theme.builtin).length} 套排版${customThemes.length > 0 ? `，另加载 ${customThemes.length} 套自定义排版` : '，开箱即用'}`
+		});
 	}
 
 	renderCoverUpload(container: HTMLElement) {
@@ -412,16 +424,11 @@ export class PublisherView extends ItemView {
 		content = await this.processImageLinks(content, activeView);
 
 		// Get custom CSS from selected theme
-		let customCSS = '';
-		if (this.selectedTheme !== '默认') {
-			const theme = this.themeManager.getTheme(this.selectedTheme);
-			if (theme) {
-				customCSS = theme.css;
-			}
-		}
+		const theme = this.themeManager.getTheme(this.selectedTheme) ?? this.themeManager.getDefaultTheme();
+		const customCSS = theme.css;
 
 		// Convert markdown to WeChat HTML with custom CSS
-		const html = MarkedFormatter.markdownToHtmlSync(content, customCSS);
+		const html = MarkedFormatter.markdownToHtmlSync(content, customCSS, { headingLabel: theme.headingLabel });
 
 		// Show preview modal
 		const title = activeView.file?.basename || '无标题';
@@ -446,8 +453,8 @@ export class PublisherView extends ItemView {
 		}
 		if (this.plugin.settings.excludeFrontmatter) content = this.removeFrontmatter(content);
 		content = await this.processImageLinks(content, activeView);
-		const theme = this.selectedTheme === '默认' ? undefined : this.themeManager.getTheme(this.selectedTheme);
-		const html = MarkedFormatter.markdownToHtmlSync(content, theme?.css || '');
+		const theme = this.themeManager.getTheme(this.selectedTheme) ?? this.themeManager.getDefaultTheme();
+		const html = MarkedFormatter.markdownToHtmlSync(content, theme.css, { headingLabel: theme.headingLabel });
 		const modal = new PreviewModal(
 			this.app,
 			html,
@@ -643,16 +650,11 @@ export class PublisherView extends ItemView {
 		this.render();
 
 		// Get custom CSS from selected theme
-		let customCSS = '';
-		if (this.selectedTheme !== '默认') {
-			const theme = this.themeManager.getTheme(this.selectedTheme);
-			if (theme) {
-				customCSS = theme.css;
-			}
-		}
+		const theme = this.themeManager.getTheme(this.selectedTheme) ?? this.themeManager.getDefaultTheme();
+		const customCSS = theme.css;
 
 		// Convert markdown to WeChat HTML with custom CSS
-		const htmlContent = MarkedFormatter.markdownToHtmlSync(content, customCSS);
+		const htmlContent = MarkedFormatter.markdownToHtmlSync(content, customCSS, { headingLabel: theme.headingLabel });
 
 		// Publish with concurrency control
 		const accountIds = Array.from(this.selectedAccountIds);

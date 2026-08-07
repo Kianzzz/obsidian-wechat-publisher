@@ -7952,6 +7952,7 @@ var require_stringifier = __commonJS({
     "use strict";
     var STYLE_TAG = /(<)(\/?style\b)/gi;
     var COMMENT_OPEN = /(<)(!--)/g;
+    var AT_NAME_END = /[\t\n\f\r "#'()/;[\\\]{}]/;
     function escapeHTMLInCSS(str) {
       if (typeof str !== "string") return str;
       if (!str.includes("<")) return str;
@@ -7977,12 +7978,13 @@ var require_stringifier = __commonJS({
     function atruleStart(str, node) {
       let name = "@" + node.name;
       let params = node.params ? str.rawValue(node, "params") : "";
-      if (typeof node.raws.afterName !== "undefined") {
-        name += node.raws.afterName;
-      } else if (params) {
-        name += " ";
+      let afterName = node.raws.afterName;
+      if (typeof afterName === "undefined") {
+        afterName = params ? " " : "";
+      } else if (afterName === "" && params && !AT_NAME_END.test(params[0])) {
+        afterName = " ";
       }
-      return name + params;
+      return name + afterName + params;
     }
     function pushBody(str, stack, node) {
       let nodes = node.nodes;
@@ -7994,10 +7996,15 @@ var require_stringifier = __commonJS({
       let semicolon = str.raw(node, "semicolon");
       let isDocument = node.type === "document";
       for (let i = nodes.length - 1; i >= 0; i--) {
+        let child = nodes[i];
+        let childSemicolon = last !== i || semicolon;
+        if (!childSemicolon && i < nodes.length - 1 && (child.type === "atrule" && !child.nodes || child.type === "decl" && child.prop.startsWith("--"))) {
+          childSemicolon = true;
+        }
         stack.push({
           document: isDocument,
-          node: nodes[i],
-          semicolon: last !== i || semicolon
+          node: child,
+          semicolon: childSemicolon
         });
       }
     }
@@ -8288,6 +8295,9 @@ var require_stringifier = __commonJS({
         return value;
       }
       root(node) {
+        if (node.source && node.source.input.hasBOM) {
+          this.builder("\uFEFF", node, "start");
+        }
         this.body(node);
         if (node.raws.after) {
           let after = node.raws.after;
@@ -9304,9 +9314,16 @@ var require_source_map = __commonJS({
 var require_previous_map = __commonJS({
   "node_modules/postcss/lib/previous-map.js"(exports, module2) {
     "use strict";
-    var { existsSync, readFileSync } = require("fs");
+    var { existsSync, readFileSync, realpathSync } = require("fs");
     var { dirname, isAbsolute, join, relative, sep } = require("path");
     var { SourceMapConsumer, SourceMapGenerator } = require_source_map();
+    function realPath(path) {
+      try {
+        return realpathSync(path);
+      } catch (e) {
+        return path;
+      }
+    }
     function fromBase64(str) {
       if (Buffer) {
         return Buffer.from(str, "base64").toString();
@@ -9369,14 +9386,11 @@ var require_previous_map = __commonJS({
       }
       loadFile(path, cssFile, trusted) {
         if (!trusted && !this.unsafeMap) {
-          if (!/\.map$/i.test(path)) {
+          if (!/\.map$/i.test(path)) return void 0;
+          if (!cssFile) return void 0;
+          let rel = relative(realPath(dirname(cssFile)), realPath(path));
+          if (rel === ".." || rel.startsWith(".." + sep) || isAbsolute(rel)) {
             return void 0;
-          }
-          if (cssFile) {
-            let relativePath = relative(dirname(cssFile), path);
-            if (relativePath === ".." || relativePath.startsWith(".." + sep) || isAbsolute(relativePath)) {
-              return void 0;
-            }
           }
         }
         this.root = dirname(path);
@@ -9750,6 +9764,7 @@ var require_list = __commonJS({
         return list2.split(string, spaces);
       },
       split(string, separators, last) {
+        if (typeof string !== "string") return [];
         let array = [];
         let current = "";
         let split = false;
@@ -11036,11 +11051,16 @@ var require_parse = __commonJS({
 var require_warning = __commonJS({
   "node_modules/postcss/lib/warning.js"(exports, module2) {
     "use strict";
+    var Container2 = require_container();
+    var { my } = require_symbols();
     var Warning2 = class {
       constructor(text, opts = {}) {
         this.type = "warning";
         this.text = text;
         if (opts.node && opts.node.source) {
+          if (!opts.node[my]) {
+            Container2.rebuild(opts.node);
+          }
           let range = opts.node.rangeBy(opts);
           this.line = range.start.line;
           this.column = range.start.column;
@@ -11550,14 +11570,19 @@ var require_lazy_result = __commonJS({
         }
         if (visit.iterator !== 0) {
           let iterator = visit.iterator;
+          if (visit.descending) {
+            visit.descending = false;
+            node.indexes[iterator] += 1;
+          }
           let child;
           while (child = node.nodes[node.indexes[iterator]]) {
-            node.indexes[iterator] += 1;
             if (!child[isClean]) {
               child[isClean] = true;
+              visit.descending = true;
               stack.push(toStack(child));
               return;
             }
+            node.indexes[iterator] += 1;
           }
           visit.iterator = 0;
           delete node.indexes[iterator];
@@ -11587,12 +11612,16 @@ var require_lazy_result = __commonJS({
           let visitNode = visit.node;
           if (visit.iterator !== 0) {
             let iterator = visit.iterator;
+            if (visit.descending) {
+              visit.descending = false;
+              visitNode.indexes[iterator] += 1;
+            }
             let child;
             let descended = false;
             while (child = visitNode.nodes[visitNode.indexes[iterator]]) {
-              visitNode.indexes[iterator] += 1;
               if (!child[isClean]) {
                 child[isClean] = true;
+                visit.descending = true;
                 stack.push({
                   eventIndex: 0,
                   events: getEvents(child),
@@ -11602,6 +11631,7 @@ var require_lazy_result = __commonJS({
                 descended = true;
                 break;
               }
+              visitNode.indexes[iterator] += 1;
             }
             if (descended) continue;
             visit.iterator = 0;
@@ -11764,7 +11794,7 @@ var require_processor = __commonJS({
     var Root2 = require_root();
     var Processor2 = class {
       constructor(plugins = []) {
-        this.version = "8.5.19";
+        this.version = "8.5.26";
         this.plugins = this.normalize(plugins);
       }
       normalize(plugins) {
@@ -14228,8 +14258,10 @@ var require_common2 = __commonJS({
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.isInSubnet = isInSubnet;
+    exports.isHostInSubnet = isHostInSubnet;
     exports.isCorrect = isCorrect;
     exports.prefixLengthFromMask = prefixLengthFromMask;
+    exports.assertByteArray = assertByteArray;
     exports.numberToPaddedHex = numberToPaddedHex;
     exports.stringToPaddedHex = stringToPaddedHex;
     exports.testBit = testBit;
@@ -14238,13 +14270,13 @@ var require_common2 = __commonJS({
       if (this.subnetMask < address.subnetMask) {
         return false;
       }
-      if (this.mask(address.subnetMask) === address.mask()) {
-        return true;
-      }
-      return false;
+      return isHostInSubnet.call(this, address);
+    }
+    function isHostInSubnet(address) {
+      return this.mask(address.subnetMask) === address.mask();
     }
     function isCorrect(defaultBits) {
-      return function() {
+      return function isCorrectForm() {
         if (this.addressMinusSuffix !== this.correctForm()) {
           return false;
         }
@@ -14267,6 +14299,16 @@ var require_common2 = __commonJS({
         throw new address_error_1.AddressError("Invalid subnet mask.");
       }
       return firstZero;
+    }
+    function assertByteArray(bytes, byteCount, family, minimum) {
+      if (bytes.length !== byteCount) {
+        throw new address_error_1.AddressError(`${family} addresses require exactly ${byteCount} bytes`);
+      }
+      for (let i = 0; i < bytes.length; i++) {
+        if (!Number.isInteger(bytes[i]) || bytes[i] < minimum || bytes[i] > 255) {
+          throw new address_error_1.AddressError(`All bytes must be integers between ${minimum} and 255`);
+        }
+      }
     }
     function numberToPaddedHex(number) {
       return number.toString(16).padStart(2, "0");
@@ -14293,7 +14335,7 @@ var require_constants2 = __commonJS({
     exports.RE_SUBNET_STRING = exports.RE_ADDRESS = exports.GROUPS = exports.BITS = void 0;
     exports.BITS = 32;
     exports.GROUPS = 4;
-    exports.RE_ADDRESS = /^(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/g;
+    exports.RE_ADDRESS = /^(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])\.(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])$/g;
     exports.RE_SUBNET_STRING = /\/\d{1,2}$/;
   }
 });
@@ -14337,6 +14379,7 @@ var require_ipv4 = __commonJS({
     var isCorrect4 = common.isCorrect(constants.BITS);
     var Address4 = class _Address4 {
       constructor(address) {
+        this.addressMinusSuffix = "";
         this.groups = constants.GROUPS;
         this.parsedAddress = [];
         this.parsedSubnet = "";
@@ -14345,6 +14388,7 @@ var require_ipv4 = __commonJS({
         this.v4 = true;
         this.isCorrect = isCorrect4;
         this.isInSubnet = common.isInSubnet;
+        this.isHostInSubnet = common.isHostInSubnet;
         this.address = address;
         const subnet = constants.RE_SUBNET_STRING.exec(address);
         if (subnet) {
@@ -14382,6 +14426,9 @@ var require_ipv4 = __commonJS({
        */
       parse(address) {
         const groups = address.split(".");
+        if (groups.some((group) => /^0\d/.test(group))) {
+          throw new address_error_1.AddressError("IPv4 addresses can't have leading zeroes.");
+        }
         if (!address.match(constants.RE_ADDRESS)) {
           throw new address_error_1.AddressError("Invalid IPv4 address.");
         }
@@ -14617,7 +14664,7 @@ var require_ipv4 = __commonJS({
        * @returns {Address4}
        */
       static fromBigInt(bigInt) {
-        if (bigInt < /* @__PURE__ */ BigInt("0") || bigInt > /* @__PURE__ */ BigInt("0xffffffff")) {
+        if (bigInt < BigInt(0) || bigInt > BigInt(4294967295)) {
           throw new address_error_1.AddressError("IPv4 BigInt must be in the range 0 to 2**32 - 1");
         }
         return _Address4.fromHex(bigInt.toString(16).padStart(8, "0"));
@@ -14630,14 +14677,7 @@ var require_ipv4 = __commonJS({
        * @returns {Address4}
        */
       static fromByteArray(bytes) {
-        if (bytes.length !== 4) {
-          throw new address_error_1.AddressError("IPv4 addresses require exactly 4 bytes");
-        }
-        for (let i = 0; i < bytes.length; i++) {
-          if (!Number.isInteger(bytes[i]) || bytes[i] < 0 || bytes[i] > 255) {
-            throw new address_error_1.AddressError("All bytes must be integers between 0 and 255");
-          }
-        }
+        common.assertByteArray(bytes, 4, "IPv4", 0);
         return this.fromUnsignedByteArray(bytes);
       }
       /**
@@ -14691,49 +14731,49 @@ var require_ipv4 = __commonJS({
        * @returns {boolean}
        */
       isMulticast() {
-        return this.isInSubnet(MULTICAST_V4);
+        return this.isHostInSubnet(MULTICAST_V4);
       }
       /**
        * Returns true if the address is in one of the [RFC 1918](https://datatracker.ietf.org/doc/html/rfc1918) private address ranges (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`).
        * @returns {boolean}
        */
       isPrivate() {
-        return PRIVATE_V4.some((subnet) => this.isInSubnet(subnet));
+        return PRIVATE_V4.some((subnet) => this.isHostInSubnet(subnet));
       }
       /**
        * Returns true if the address is in the loopback range `127.0.0.0/8` ([RFC 1122](https://datatracker.ietf.org/doc/html/rfc1122)).
        * @returns {boolean}
        */
       isLoopback() {
-        return this.isInSubnet(LOOPBACK_V4);
+        return this.isHostInSubnet(LOOPBACK_V4);
       }
       /**
        * Returns true if the address is in the link-local range `169.254.0.0/16` ([RFC 3927](https://datatracker.ietf.org/doc/html/rfc3927)).
        * @returns {boolean}
        */
       isLinkLocal() {
-        return this.isInSubnet(LINK_LOCAL_V4);
+        return this.isHostInSubnet(LINK_LOCAL_V4);
       }
       /**
        * Returns true if the address is the unspecified address `0.0.0.0`.
        * @returns {boolean}
        */
       isUnspecified() {
-        return this.isInSubnet(UNSPECIFIED_V4);
+        return this.isHostInSubnet(UNSPECIFIED_V4);
       }
       /**
        * Returns true if the address is the limited broadcast address `255.255.255.255` ([RFC 919](https://datatracker.ietf.org/doc/html/rfc919)).
        * @returns {boolean}
        */
       isBroadcast() {
-        return this.isInSubnet(BROADCAST_V4);
+        return this.isHostInSubnet(BROADCAST_V4);
       }
       /**
        * Returns true if the address is in the carrier-grade NAT range `100.64.0.0/10` ([RFC 6598](https://datatracker.ietf.org/doc/html/rfc6598)).
        * @returns {boolean}
        */
       isCGNAT() {
-        return this.isInSubnet(CGNAT_V4);
+        return this.isHostInSubnet(CGNAT_V4);
       }
       /**
        * Returns a zero-padded base-2 string representation of the address
@@ -14751,7 +14791,7 @@ var require_ipv4 = __commonJS({
        */
       groupForV6() {
         const segments = this.parsedAddress;
-        return this.address.replace(constants.RE_ADDRESS, `<span class="hover-group group-v4 group-6">${segments.slice(0, 2).join(".")}</span>.<span class="hover-group group-v4 group-7">${segments.slice(2, 4).join(".")}</span>`);
+        return this.correctForm().replace(constants.RE_ADDRESS, `<span class="hover-group group-v4 group-6">${segments.slice(0, 2).join(".")}</span>.<span class="hover-group group-v4 group-7">${segments.slice(2, 4).join(".")}</span>`);
       }
     };
     exports.Address4 = Address4;
@@ -14808,6 +14848,7 @@ var require_constants3 = __commonJS({
       "ff05::1:3/128": "Multicast (All DHCP servers in this site)",
       "::/128": "Unspecified",
       "::1/128": "Loopback",
+      "::ffff:0:0/96": "IPv4-mapped",
       "ff00::/8": "Multicast",
       "fe80::/10": "Link-local unicast",
       "fc00::/7": "Unique local",
@@ -14820,8 +14861,8 @@ var require_constants3 = __commonJS({
     exports.RE_BAD_ADDRESS = /([0-9a-f]{5,}|:{3,}|[^:]:$|^:[^:]|\/$)/gi;
     exports.RE_SUBNET_STRING = /\/\d{1,3}(?=%|$)/;
     exports.RE_ZONE_STRING = /%.*$/;
-    exports.RE_URL = /^\[{0,1}([0-9a-f:]+)\]{0,1}/;
-    exports.RE_URL_WITH_PORT = /\[([0-9a-f:]+)\]:([0-9]{1,5})/;
+    exports.RE_URL = /^(?:\[([0-9a-f:.]+)\]|([0-9a-f:.]+))(?:[/?#].*)?$/i;
+    exports.RE_URL_WITH_PORT = /^\[([0-9a-f:.]+)\]:([0-9]{1,5})(?:[/?#].*)?$/i;
   }
 });
 
@@ -15043,6 +15084,7 @@ var require_ipv6 = __commonJS({
         this.v4 = false;
         this.zone = "";
         this.isInSubnet = common.isInSubnet;
+        this.isHostInSubnet = common.isHostInSubnet;
         this.isCorrect = isCorrect6;
         if (optionalGroups === void 0) {
           this.groups = constants6.GROUPS;
@@ -15059,7 +15101,8 @@ var require_ipv6 = __commonJS({
             throw new address_error_1.AddressError("Invalid subnet mask.");
           }
           address = address.replace(constants6.RE_SUBNET_STRING, "");
-        } else if (/\//.test(address)) {
+        }
+        if (/\//.test(address)) {
           throw new address_error_1.AddressError("Invalid subnet mask.");
         }
         const zone = constants6.RE_ZONE_STRING.exec(address);
@@ -15096,7 +15139,7 @@ var require_ipv6 = __commonJS({
        * address.correctForm(); // '::e8:d4a5:1000'
        */
       static fromBigInt(bigInt) {
-        if (bigInt < /* @__PURE__ */ BigInt("0") || bigInt > (/* @__PURE__ */ BigInt("1") << BigInt(constants6.BITS)) - /* @__PURE__ */ BigInt("1")) {
+        if (bigInt < BigInt(0) || bigInt > (BigInt(1) << BigInt(constants6.BITS)) - BigInt(1)) {
           throw new address_error_1.AddressError("IPv6 BigInt must be in the range 0 to 2**128 - 1");
         }
         const hex = bigInt.toString(16).padStart(32, "0");
@@ -15117,11 +15160,13 @@ var require_ipv6 = __commonJS({
        * addressAndPort.port; // 8080
        */
       static fromURL(url) {
+        var _a;
         let host;
         let port = null;
         let result;
-        if (url.indexOf("[") !== -1 && url.indexOf("]:") !== -1) {
-          result = constants6.RE_URL_WITH_PORT.exec(url);
+        const stripped = url.replace(/^[a-z][a-z0-9+.-]*:\/\//i, "");
+        if (stripped.indexOf("[") !== -1 && stripped.indexOf("]:") !== -1) {
+          result = constants6.RE_URL_WITH_PORT.exec(stripped);
           if (result === null) {
             return {
               error: "failed to parse address with port",
@@ -15131,9 +15176,8 @@ var require_ipv6 = __commonJS({
           }
           host = result[1];
           port = result[2];
-        } else if (url.indexOf("/") !== -1) {
-          url = url.replace(/^[a-z0-9]+:\/\//, "");
-          result = constants6.RE_URL.exec(url);
+        } else {
+          result = constants6.RE_URL.exec(stripped);
           if (result === null) {
             return {
               error: "failed to parse address from URL",
@@ -15141,13 +15185,11 @@ var require_ipv6 = __commonJS({
               port: null
             };
           }
-          host = result[1];
-        } else {
-          host = url;
+          host = (_a = result[1]) !== null && _a !== void 0 ? _a : result[2];
         }
         if (port) {
           port = parseInt(port, 10);
-          if (port < 0 || port > 65536) {
+          if (port < 0 || port > 65535) {
             port = null;
           }
         } else {
@@ -15409,7 +15451,7 @@ var require_ipv6 = __commonJS({
       getType() {
         for (let i = 0; i < TYPE_SUBNETS.length; i++) {
           const entry = TYPE_SUBNETS[i];
-          if (this.isInSubnet(entry[0])) {
+          if (this.isHostInSubnet(entry[0])) {
             return entry[1];
           }
         }
@@ -15542,18 +15584,20 @@ var require_ipv6 = __commonJS({
         }
         const groups = address.split(":");
         const lastGroup = groups.slice(-1)[0];
+        const v4Octets = lastGroup.split(".");
+        if (v4Octets.length === constants4.GROUPS && v4Octets.every((octet) => /^\d{1,3}$/.test(octet))) {
+          if (v4Octets.some((octet) => /^0\d/.test(octet))) {
+            const highlighted = v4Octets.map(spanLeadingZeroes4).join(".");
+            const prefix = groups.slice(0, -1).map(helpers.escapeHtml).join(":");
+            const separator = groups.length > 1 ? ":" : "";
+            throw new address_error_1.AddressError("IPv4 addresses can't have leading zeroes.", `${prefix}${separator}${highlighted}`);
+          }
+        }
         const address4 = lastGroup.match(constants4.RE_ADDRESS);
         if (address4) {
           this.parsedAddress4 = address4[0];
-          this.address4 = new ipv4_1.Address4(this.parsedAddress4);
-          for (let i = 0; i < this.address4.groups; i++) {
-            if (/^0[0-9]+/.test(this.address4.parsedAddress[i])) {
-              const highlighted = this.address4.parsedAddress.map(spanLeadingZeroes4).join(".");
-              const prefix = groups.slice(0, -1).map(helpers.escapeHtml).join(":");
-              const separator = groups.length > 1 ? ":" : "";
-              throw new address_error_1.AddressError("IPv4 addresses can't have leading zeroes.", `${prefix}${separator}${highlighted}`);
-            }
-          }
+          const v4Suffix = this.subnetMask >= 96 ? `/${this.subnetMask - 96}` : "";
+          this.address4 = new ipv4_1.Address4(`${this.parsedAddress4}${v4Suffix}`);
           this.v4 = true;
           groups[groups.length - 1] = this.address4.toGroup6();
           address = groups.join(":");
@@ -15637,7 +15681,11 @@ var require_ipv6 = __commonJS({
         return BigInt(`0x${this.parsedAddress.map(paddedHex).join("")}`);
       }
       /**
-       * Return the last two groups of this address as an IPv4 address string
+       * Return the last two groups of this address as an IPv4 address string.
+       * If this address carries a CIDR prefix that covers the trailing 32 bits
+       * (i.e. `subnetMask >= 96`), the resulting `Address4` inherits the
+       * corresponding v4 prefix (`subnetMask - 96`); otherwise it defaults to
+       * `/32`.
        * @returns {Address4}
        * @example
        * var address = new Address6('2001:4860:4001::1825:bf11');
@@ -15645,7 +15693,16 @@ var require_ipv6 = __commonJS({
        */
       to4() {
         const binary = this.binaryZeroPad().split("");
-        return ipv4_1.Address4.fromHex(BigInt(`0b${binary.slice(96, 128).join("")}`).toString(16).padStart(8, "0"));
+        const hex = BigInt(`0b${binary.slice(96, 128).join("")}`).toString(16).padStart(8, "0");
+        if (this.subnetMask >= 96) {
+          const v4Mask = this.subnetMask - 96;
+          const groups = [];
+          for (let i = 0; i < 8; i += 2) {
+            groups.push(parseInt(hex.slice(i, i + 2), 16));
+          }
+          return new ipv4_1.Address4(`${groups.join(".")}/${v4Mask}`);
+        }
+        return ipv4_1.Address4.fromHex(hex);
       }
       /**
        * Return the v4-in-v6 form of the address
@@ -15659,7 +15716,7 @@ var require_ipv6 = __commonJS({
         if (!/:$/.test(correct)) {
           infix = ":";
         }
-        return correct + infix + address4.address;
+        return correct + infix + address4.correctForm();
       }
       /**
        * Decodes the Teredo tunneling fields embedded in this address. Returns the
@@ -15749,7 +15806,14 @@ var require_ipv6 = __commonJS({
           bits = prefixBits.slice(0, 96) + v4Bits;
         } else {
           const beforeU = 64 - pl;
-          bits = prefixBits.slice(0, pl) + v4Bits.slice(0, beforeU) + "00000000" + v4Bits.slice(beforeU) + "0".repeat(128 - 72 - (32 - beforeU));
+          bits = [
+            prefixBits.slice(0, pl),
+            v4Bits.slice(0, beforeU),
+            // Bits 64 to 71 are the reserved u octet and are always zero.
+            "00000000",
+            v4Bits.slice(beforeU),
+            "0".repeat(128 - 72 - (32 - beforeU))
+          ].join("");
         }
         const hex = BigInt(`0b${bits}`).toString(16).padStart(32, "0");
         const groups = [];
@@ -15772,7 +15836,7 @@ var require_ipv6 = __commonJS({
         if (pl !== 32 && pl !== 40 && pl !== 48 && pl !== 56 && pl !== 64 && pl !== 96) {
           throw new address_error_1.AddressError("NAT64 prefix length must be 32, 40, 48, 56, 64, or 96");
         }
-        if (!this.isInSubnet(prefix6)) {
+        if (!this.isHostInSubnet(prefix6)) {
           return null;
         }
         const bits = this.binaryZeroPad();
@@ -15796,9 +15860,7 @@ var require_ipv6 = __commonJS({
        * @returns {Array}
        */
       toByteArray() {
-        const valueWithoutPadding = this.bigInt().toString(16);
-        const leadingPad = "0".repeat(valueWithoutPadding.length % 2);
-        const value = `${leadingPad}${valueWithoutPadding}`;
+        const value = this.bigInt().toString(16).padStart(constants6.BITS / 4, "0");
         const bytes = [];
         for (let i = 0, length = value.length; i < length; i += 2) {
           bytes.push(parseInt(value.substring(i, i + 2), 16));
@@ -15817,19 +15879,28 @@ var require_ipv6 = __commonJS({
       /**
        * Convert a byte array to an Address6 object.
        *
+       * Accepts unsigned bytes (0 to 255) or signed bytes (-128 to 127, as an
+       * `Int8Array` or a Java `byte[]` holds them), folding signed values to their
+       * unsigned equivalent. Throws `AddressError` unless given exactly 16
+       * integers from -128 to 255.
+       *
        * To convert from a Node.js `Buffer`, spread it: `Address6.fromByteArray([...buf])`.
        * @returns {Address6}
        */
       static fromByteArray(bytes) {
+        common.assertByteArray(bytes, 16, "IPv6", -128);
         return this.fromUnsignedByteArray(bytes.map(unsignByte));
       }
       /**
        * Convert an unsigned byte array to an Address6 object.
        *
+       * Throws `AddressError` unless given exactly 16 integers from 0 to 255.
+       *
        * To convert from a Node.js `Buffer`, spread it: `Address6.fromUnsignedByteArray([...buf])`.
        * @returns {Address6}
        */
       static fromUnsignedByteArray(bytes) {
+        common.assertByteArray(bytes, 16, "IPv6", 0);
         const BYTE_MAX = BigInt("256");
         let result = BigInt("0");
         let multiplier = BigInt("1");
@@ -15851,6 +15922,10 @@ var require_ipv6 = __commonJS({
        * @returns {boolean}
        */
       isLinkLocal() {
+        const embedded = this.embeddedIPv4();
+        if (embedded) {
+          return embedded.isLinkLocal();
+        }
         if (this.getBitsBase2(0, 64) === "1111111010000000000000000000000000000000000000000000000000000000") {
           return true;
         }
@@ -15861,6 +15936,10 @@ var require_ipv6 = __commonJS({
        * @returns {boolean}
        */
       isMulticast() {
+        const embedded = this.embeddedIPv4();
+        if (embedded) {
+          return embedded.isMulticast();
+        }
         const type = this.getType();
         return type === "Multicast" || type.startsWith("Multicast ");
       }
@@ -15883,27 +15962,54 @@ var require_ipv6 = __commonJS({
        * @returns {boolean}
        */
       isMapped4() {
-        return this.isInSubnet(IPV4_MAPPED_SUBNET);
+        return this.isHostInSubnet(IPV4_MAPPED_SUBNET);
+      }
+      /**
+       * If this address embeds a routable IPv4 address — i.e. it is IPv4-mapped
+       * (`::ffff:0:0/96`) or sits in the NAT64 well-known prefix (`64:ff9b::/96`,
+       * [RFC 6052](https://datatracker.ietf.org/doc/html/rfc6052)) — return that
+       * embedded address as an {@link Address4}; otherwise return null.
+       *
+       * The special-property checks (`isLoopback`, `isLinkLocal`, `isMulticast`,
+       * `isUnspecified`, `isPrivate`, `isCGNAT`, `isBroadcast`) call this first and
+       * delegate to the embedded {@link Address4} when present, so a literal such as
+       * `::ffff:127.0.0.1` is classified by what it actually reaches (loopback)
+       * rather than by its IPv6 wrapper (which `getType()` reports as IPv4-mapped).
+       * This matters wherever the checks back a trust-boundary decision (e.g. an
+       * SSRF allow/deny filter): without normalization, `::ffff:10.0.0.1`,
+       * `::ffff:169.254.169.254`, `64:ff9b::7f00:1`, etc. would all read as
+       * non-internal.
+       * @returns {Address4 | null}
+       */
+      embeddedIPv4() {
+        if (this.isMapped4() || this.isHostInSubnet(NAT64_WELL_KNOWN_SUBNET)) {
+          return this.to4();
+        }
+        return null;
       }
       /**
        * Returns true if the address is a Teredo address, false otherwise
        * @returns {boolean}
        */
       isTeredo() {
-        return this.isInSubnet(TEREDO_SUBNET);
+        return this.isHostInSubnet(TEREDO_SUBNET);
       }
       /**
        * Returns true if the address is a 6to4 address, false otherwise
        * @returns {boolean}
        */
       is6to4() {
-        return this.isInSubnet(SIX_TO_FOUR_SUBNET);
+        return this.isHostInSubnet(SIX_TO_FOUR_SUBNET);
       }
       /**
        * Returns true if the address is a loopback address, false otherwise
        * @returns {boolean}
        */
       isLoopback() {
+        const embedded = this.embeddedIPv4();
+        if (embedded) {
+          return embedded.isLoopback();
+        }
         return this.getType() === "Loopback";
       }
       /**
@@ -15911,13 +16017,64 @@ var require_ipv6 = __commonJS({
        * @returns {boolean}
        */
       isULA() {
-        return this.isInSubnet(ULA_SUBNET);
+        return this.isHostInSubnet(ULA_SUBNET);
+      }
+      /**
+       * Returns true if the address is private, i.e. a Unique Local Address in
+       * `fc00::/7` ([RFC 4193](https://datatracker.ietf.org/doc/html/rfc4193)) or an
+       * IPv4-mapped / NAT64 address whose embedded IPv4 address is in one of the
+       * [RFC 1918](https://datatracker.ietf.org/doc/html/rfc1918) private ranges
+       * (e.g. `::ffff:10.0.0.1`). This is the IPv6 counterpart to
+       * {@link Address4.isPrivate}; use it instead of {@link isULA} when you need to
+       * catch mapped RFC 1918 addresses as well as native ULAs.
+       * @returns {boolean}
+       */
+      isPrivate() {
+        const embedded = this.embeddedIPv4();
+        if (embedded) {
+          return embedded.isPrivate();
+        }
+        return this.isULA();
+      }
+      /**
+       * Returns true if the address is an IPv4-mapped / NAT64 address whose embedded
+       * IPv4 address is in the carrier-grade NAT range `100.64.0.0/10`
+       * ([RFC 6598](https://datatracker.ietf.org/doc/html/rfc6598)), false
+       * otherwise. There is no native IPv6 CGNAT range, so this only ever returns
+       * true for an embedded IPv4 address (e.g. `::ffff:100.64.0.1`).
+       * @returns {boolean}
+       */
+      isCGNAT() {
+        const embedded = this.embeddedIPv4();
+        if (embedded) {
+          return embedded.isCGNAT();
+        }
+        return false;
+      }
+      /**
+       * Returns true if the address is an IPv4-mapped / NAT64 address whose embedded
+       * IPv4 address is the limited broadcast address `255.255.255.255`
+       * ([RFC 919](https://datatracker.ietf.org/doc/html/rfc919)), false otherwise.
+       * There is no IPv6 broadcast, so this only ever returns true for an embedded
+       * IPv4 address (e.g. `::ffff:255.255.255.255`).
+       * @returns {boolean}
+       */
+      isBroadcast() {
+        const embedded = this.embeddedIPv4();
+        if (embedded) {
+          return embedded.isBroadcast();
+        }
+        return false;
       }
       /**
        * Returns true if the address is the unspecified address `::`.
        * @returns {boolean}
        */
       isUnspecified() {
+        const embedded = this.embeddedIPv4();
+        if (embedded) {
+          return embedded.isUnspecified();
+        }
         return this.getType() === "Unspecified";
       }
       /**
@@ -15925,7 +16082,7 @@ var require_ipv6 = __commonJS({
        * @returns {boolean}
        */
       isDocumentation() {
-        return this.isInSubnet(DOCUMENTATION_SUBNET);
+        return this.isHostInSubnet(DOCUMENTATION_SUBNET);
       }
       // #endregion
       // #region HTML
@@ -16070,6 +16227,7 @@ var require_ipv6 = __commonJS({
     var ULA_SUBNET = new Address6("fc00::/7");
     var DOCUMENTATION_SUBNET = new Address6("2001:db8::/32");
     var IPV4_MAPPED_SUBNET = new Address6("::ffff:0:0/96");
+    var NAT64_WELL_KNOWN_SUBNET = new Address6("64:ff9b::/96");
   }
 });
 
@@ -17201,7 +17359,8 @@ var DEFAULT_SETTINGS = {
   autoCheckInterval: 36e5,
   // 1 hour
   themesFolder: "",
-  defaultTheme: "\u9ED8\u8BA4",
+  customThemesEnabled: false,
+  defaultTheme: "\u7EFF\u767D\u6E05\u7B80",
   excludeFrontmatter: false,
   defaultCoverImage: ""
 };
@@ -17256,6 +17415,7 @@ function applyStyleToElement(element, cssRoot) {
   }
   const existingStyles = element.style.cssText;
   cssRoot.walkRules((rule2) => {
+    if (hasAtRuleParent(rule2)) return;
     const selector = processPseudoSelector(rule2.selector);
     try {
       if (element.matches(selector)) {
@@ -17282,7 +17442,7 @@ function applyStyleToElement(element, cssRoot) {
         });
       }
     } catch (err) {
-      if (err.message && err.message.includes("is not a valid selector")) {
+      if (err instanceof Error && err.message.includes("is not a valid selector")) {
         return;
       }
       console.warn("CSS selector error:", err);
@@ -17293,6 +17453,14 @@ function applyStyleToElement(element, cssRoot) {
     applyStyleToElement(child, cssRoot);
     child = child.nextElementSibling;
   }
+}
+function hasAtRuleParent(rule2) {
+  let parent = rule2.parent;
+  while (parent) {
+    if (parent.type === "atrule") return true;
+    parent = parent.parent;
+  }
+  return false;
 }
 function processPseudoSelector(selector) {
   return selector.replace(/::before/g, "").replace(/::after/g, "");
@@ -19374,13 +19542,14 @@ var MarkedFormatter = class {
   /**
    * Convert markdown to WeChat-compatible HTML with optional custom CSS
    */
-  static async markdownToHtml(markdown, customCSS) {
+  static async markdownToHtml(markdown, customCSS, options2 = {}) {
     const markedLib = this.initMarked();
     let html = await markedLib.parse(markdown);
     html = `
 <section class="note-to-mp" style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; font-size: 15px; color: #333; line-height: 1.75; word-wrap: break-word; word-break: break-word;">
 ${html}
 </section>`.trim();
+    html = this.decorateHeadings(html, options2);
     if (customCSS) {
       try {
         html = applyInlineCSS(html, customCSS);
@@ -19393,13 +19562,14 @@ ${html}
   /**
    * Synchronous version for compatibility (uses cached parsing if possible)
    */
-  static markdownToHtmlSync(markdown, customCSS) {
+  static markdownToHtmlSync(markdown, customCSS, options2 = {}) {
     const markedLib = this.initMarked();
     let html = markedLib.parse(markdown, { async: false });
     html = `
 <section class="note-to-mp" style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; font-size: 15px; color: #333; line-height: 1.75; word-wrap: break-word; word-break: break-word;">
 ${html}
 </section>`.trim();
+    html = this.decorateHeadings(html, options2);
     if (customCSS) {
       try {
         html = applyInlineCSS(html, customCSS);
@@ -19444,6 +19614,21 @@ hr { border: none; border-top: 1px solid #e0e0e0; margin: 2em 0; }
       return html;
     }
   }
+  static decorateHeadings(html, options2) {
+    var _a;
+    const headingLabel = (_a = options2.headingLabel) == null ? void 0 : _a.trim();
+    if (!headingLabel) return html;
+    const container = document.createElement("div");
+    container.append((0, import_obsidian2.sanitizeHTMLToDom)(html));
+    const headings = Array.from(container.querySelectorAll("h2"));
+    for (const [index, heading] of headings.entries()) {
+      const label = document.createElement("span");
+      label.className = "wechatpb-heading-label";
+      label.textContent = `${headingLabel} ${String(index + 1).padStart(2, "0")}`;
+      heading.prepend(label);
+    }
+    return container.innerHTML;
+  }
   static sanitize(html) {
     const container = document.createElement("div");
     container.append((0, import_obsidian2.sanitizeHTMLToDom)(html));
@@ -19456,59 +19641,222 @@ MarkedFormatter.markedInstance = null;
 var import_obsidian3 = require("obsidian");
 
 // themes/Apple极简-黑.md
-var Apple_default = '\n```CSS\n/* \u5168\u5C40\u5C5E\u6027 */\n.note-to-mp {\n  max-width: 620px;\n  margin: 0 auto;\n  padding: 20px 24px;\n  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", Arial, sans-serif;\n  font-size: 16px;\n  line-height: 21px !important;\n  color: #6e6e73 !important;\n  background-color: #fbfbfd !important;\n  text-align: left !important;\n  word-wrap: break-word;\n  word-break: break-word;\n}\n\n/* --- \u6807\u9898\u90E8\u5206 --- */\n.note-to-mp h1 {\n  font-size: 18px;\n  font-weight: 400;\n  color: #1d1d1f !important;\n  line-height: 24px !important;\n  margin: 28px 0 12px;\n  letter-spacing: -0.03em;\n}\n\n.note-to-mp h2 {\n  font-size: 18px;\n  font-weight: 400;\n  color: #1d1d1f !important;\n  line-height: 24px !important;\n  margin: 28px 0 12px;\n  letter-spacing: -0.02em;\n}\n\n.note-to-mp h3 {\n  font-size: 18px;\n  font-weight: 400;\n  color: #1d1d1f !important;\n  line-height: 24px !important;\n  margin: 28px 0 10px;\n  letter-spacing: -0.01em;\n}\n\n.note-to-mp h4 {\n  font-size: 18px;\n  font-weight: 400;\n  color: #1d1d1f !important;\n  line-height: 24px !important;\n  margin: 28px 0 10px;\n}\n\n.note-to-mp h5 {\n  font-size: 18px;\n  font-weight: 400;\n  color: #1d1d1f !important;\n  line-height: 24px !important;\n  margin: 28px 0 10px;\n}\n\n.note-to-mp h6 {\n  font-size: 18px;\n  font-weight: 400;\n  color: #1d1d1f !important;\n  line-height: 24px !important;\n  margin: 28px 0 10px;\n}\n\n/* \u6BB5\u843D */\n.note-to-mp p {\n  margin: 18px 0 !important;\n  line-height: 24px !important;\n  color: #6e6e73 !important;\n  font-weight: 300;\n  text-align: left;\n}\n\n/* \u52A0\u7C97 */\n.note-to-mp strong {\n  font-weight: 400;\n  color: #1d1d1f !important;\n}\n\n/* \u659C\u4F53 */\n.note-to-mp em {\n  font-style: normal;\n  color: #6e6e73 !important;\n  font-weight: 300;\n}\n\n/* \u4E0B\u5212\u7EBF */\n.note-to-mp u {\n  text-decoration: none;\n  border-bottom: 1px solid #86868b;\n  padding-bottom: 2px;\n}\n\n/* \u94FE\u63A5 */\n.note-to-mp a {\n  color: #06c !important;\n  text-decoration: none;\n  font-weight: 400;\n  word-break: break-all;\n}\n\n/* --- \u5217\u8868\u4F18\u5316\u7248 --- */\n.note-to-mp ul, .note-to-mp ol {\n  margin: 18px 0;\n  padding-left: 22px;\n}\n.note-to-mp ul { list-style-type: disc; }\n.note-to-mp ol { list-style-type: decimal; }\n\n.note-to-mp li {\n  margin: 8px 0;\n  line-height: 24px !important;\n  color: #6e6e73 !important;\n  font-weight: 300;\n  padding-left: 0;\n  position: relative;\n}\n\n/* --- \u5F15\u7528\u4F18\u5316\u7248 --- */\n.note-to-mp blockquote {\n  margin: 18px 0;\n  padding: 12px 16px;\n  background-color: #f5f5f7 !important;\n  border-left: 4px solid #424245;\n  border-radius: 4px;\n\n  color: #6e6e73 !important;\n  font-size: 14px;\n  line-height: 1.6 !important;\n  font-weight: 400;\n  text-align: left;\n  font-style: normal;\n  max-width: 100%;\n}\n\n/* --- \u4EE3\u7801\u5757\u90E8\u5206 --- */\n\n/* 1. \u884C\u5185\u4EE3\u7801 (\u6587\u5B57\u4E2D\u95F4\u7684\u77ED\u4EE3\u7801) */\n.note-to-mp code {\n  font-family: Menlo, Monaco, Consolas, "Courier New", monospace, sans-serif;\n  font-size: 14px;\n  padding: 2px 6px;\n  background-color: #f5f5f7 !important;\n  color: #6e6e73 !important;\n  border-radius: 6px;\n  font-weight: 400;\n}\n\n/* 2. \u4EE3\u7801\u5757\u5916\u5C42\u5BB9\u5668 (Mac\u7A97\u53E3\u98CE\u683C) */\n.note-to-mp .code-section {\n  margin: 24px 0;\n  padding: 45px 20px 20px;\n  background-color: #282c34 !important;\n  border-radius: 8px;\n  overflow-x: auto;\n\n  background-image:\n    radial-gradient(circle, #ff5f56 6px, transparent 7px),\n    radial-gradient(circle, #ffbd2e 6px, transparent 7px),\n    radial-gradient(circle, #27c93f 6px, transparent 7px),\n    linear-gradient(#21252b, #21252b);\n  background-size: 14px 14px, 14px 14px, 14px 14px, 100% 36px;\n  background-position: 15px 12px, 35px 12px, 55px 12px, 0 0;\n  background-repeat: no-repeat;\n\n  box-shadow: 0 10px 30px rgba(0,0,0,0.15);\n  border: none;\n}\n\n.note-to-mp .code-section ul { display: none; }\n\n/* 3. pre \u6807\u7B7E\u6837\u5F0F\u91CD\u7F6E (\u81EA\u52A8\u6362\u884C) */\n.note-to-mp .code-section pre {\n  margin: 0;\n  padding: 0;\n  background: transparent !important;\n  border: none;\n  line-height: 1.6 !important;\n  white-space: pre-wrap !important;\n  word-wrap: break-word !important;\n  word-break: break-all !important;\n}\n\n/* 4. \u4EE3\u7801\u5757\u5185\u90E8\u6587\u5B57 (\u5F3A\u5236\u9AD8\u4EAE\u989C\u8272) */\n.note-to-mp .code-section code,\n.note-to-mp .code-section span {\n  background-color: transparent !important;\n  color: #e0e6ed !important;\n  padding: 0;\n  border-radius: 0;\n  display: inline;\n  font-family: Menlo, Monaco, Consolas, "Courier New", monospace, sans-serif;\n  font-size: 14px;\n}\n\n/* \u56FE\u7247 */\n.note-to-mp img {\n  max-width: 100%;\n  max-height: 600px !important;\n  height: auto;\n  display: block;\n  margin: 20px auto 41px;\n  border-radius: 15px;\n  box-shadow: 0 15px 30px -6px rgba(33, 150, 243, 0.25), 0 9px 18px -9px rgba(0, 0, 0, 0.3), 0 -6px 18px -4px rgba(0, 0, 0, 0.025);\n}\n.note-to-mp img:hover { transform: translateY(-8px); box-shadow: 0 20px 40px -8px rgba(33, 150, 243, 0.3), 0 12px 24px -12px rgba(0, 0, 0, 0.35); }\n\n/* \u8868\u683C */\n.note-to-mp table { width: 100%; margin: 18px 0; border-collapse: collapse; font-size: 15px; }\n.note-to-mp th { background-color: #f5f5f7 !important; padding: 16px 20px; text-align: left; border: none; font-weight: 500; color: #1d1d1f !important; }\n.note-to-mp td { padding: 16px 20px; border: none; border-top: 1px solid #d2d2d7; color: #6e6e73 !important; font-weight: 300; }\n```\n';
+var Apple_default = '\n```CSS\n/* \u5168\u5C40\u5C5E\u6027 */\n.note-to-mp {\n  max-width: 620px;\n  margin: 0 auto;\n  padding: 20px 24px;\n  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", Arial, sans-serif;\n  font-size: 16px;\n  line-height: 21px !important;\n  color: #6e6e73 !important;\n  background-color: #fbfbfd !important;\n  text-align: left !important;\n  word-wrap: break-word;\n  word-break: break-word;\n}\n\n/* --- \u6807\u9898\u90E8\u5206 --- */\n.note-to-mp h1 {\n  font-size: 18px;\n  font-weight: 400;\n  color: #1d1d1f !important;\n  line-height: 24px !important;\n  margin: 28px 0 12px;\n  letter-spacing: -0.03em;\n}\n\n.note-to-mp h2 {\n  font-size: 18px;\n  font-weight: 400;\n  color: #1d1d1f !important;\n  line-height: 24px !important;\n  margin: 28px 0 12px;\n  letter-spacing: -0.02em;\n}\n\n.note-to-mp h3 {\n  font-size: 18px;\n  font-weight: 400;\n  color: #1d1d1f !important;\n  line-height: 24px !important;\n  margin: 28px 0 10px;\n  letter-spacing: -0.01em;\n}\n\n.note-to-mp h4 {\n  font-size: 18px;\n  font-weight: 400;\n  color: #1d1d1f !important;\n  line-height: 24px !important;\n  margin: 28px 0 10px;\n}\n\n.note-to-mp h5 {\n  font-size: 18px;\n  font-weight: 400;\n  color: #1d1d1f !important;\n  line-height: 24px !important;\n  margin: 28px 0 10px;\n}\n\n.note-to-mp h6 {\n  font-size: 18px;\n  font-weight: 400;\n  color: #1d1d1f !important;\n  line-height: 24px !important;\n  margin: 28px 0 10px;\n}\n\n/* \u6BB5\u843D */\n.note-to-mp p {\n  margin: 18px 0 !important;\n  line-height: 24px !important;\n  color: #6e6e73 !important;\n  font-weight: 300;\n  text-align: left;\n}\n\n/* \u52A0\u7C97 */\n.note-to-mp strong {\n  font-weight: 400;\n  color: #1d1d1f !important;\n}\n\n/* \u659C\u4F53 */\n.note-to-mp em {\n  font-style: normal;\n  color: #6e6e73 !important;\n  font-weight: 300;\n}\n\n/* \u4E0B\u5212\u7EBF */\n.note-to-mp u {\n  text-decoration: none;\n  border-bottom: 1px solid #86868b;\n  padding-bottom: 2px;\n}\n\n/* \u94FE\u63A5 */\n.note-to-mp a {\n  color: #06c !important;\n  text-decoration: none;\n  font-weight: 400;\n  word-break: break-all;\n}\n\n/* --- \u5217\u8868\u4F18\u5316\u7248 --- */\n.note-to-mp ul, .note-to-mp ol {\n  margin: 18px 0;\n  padding-left: 22px;\n}\n.note-to-mp ul { list-style-type: disc; }\n.note-to-mp ol { list-style-type: decimal; }\n\n.note-to-mp li {\n  margin: 8px 0;\n  line-height: 24px !important;\n  color: #6e6e73 !important;\n  font-weight: 300;\n  padding-left: 0;\n  position: relative;\n}\n\n/* --- \u5F15\u7528\u4F18\u5316\u7248 --- */\n.note-to-mp blockquote {\n  margin: 18px 0;\n  padding: 12px 16px;\n  background-color: #f5f5f7 !important;\n  border-left: 4px solid #424245;\n  border-radius: 4px;\n\n  color: #6e6e73 !important;\n  font-size: 14px;\n  line-height: 1.6 !important;\n  font-weight: 400;\n  text-align: left;\n  font-style: normal;\n  max-width: 100%;\n}\n\n/* --- \u4EE3\u7801\u5757\u90E8\u5206 --- */\n\n/* 1. \u884C\u5185\u4EE3\u7801 (\u6587\u5B57\u4E2D\u95F4\u7684\u77ED\u4EE3\u7801) */\n.note-to-mp code {\n  font-family: Menlo, Monaco, Consolas, "Courier New", monospace, sans-serif;\n  font-size: 14px;\n  padding: 2px 6px;\n  background-color: #f5f5f7 !important;\n  color: #6e6e73 !important;\n  border-radius: 6px;\n  font-weight: 400;\n}\n\n/* 2. \u4EE3\u7801\u5757\u5916\u5C42\u5BB9\u5668 (Mac\u7A97\u53E3\u98CE\u683C) */\n.note-to-mp .code-section {\n  margin: 24px 0;\n  padding: 45px 20px 20px;\n  background-color: #282c34 !important;\n  border-radius: 8px;\n  overflow-x: auto;\n\n  background-image:\n    radial-gradient(circle, #ff5f56 6px, transparent 7px),\n    radial-gradient(circle, #ffbd2e 6px, transparent 7px),\n    radial-gradient(circle, #27c93f 6px, transparent 7px),\n    linear-gradient(#21252b, #21252b);\n  background-size: 14px 14px, 14px 14px, 14px 14px, 100% 36px;\n  background-position: 15px 12px, 35px 12px, 55px 12px, 0 0;\n  background-repeat: no-repeat;\n\n  box-shadow: 0 10px 30px rgba(0,0,0,0.15);\n  border: none;\n}\n\n.note-to-mp .code-section ul { display: none; }\n\n/* 3. pre \u6807\u7B7E\u6837\u5F0F\u91CD\u7F6E (\u81EA\u52A8\u6362\u884C) */\n.note-to-mp .code-section pre {\n  margin: 0;\n  padding: 0;\n  background: transparent !important;\n  border: none;\n  line-height: 1.6 !important;\n  white-space: pre-wrap !important;\n  word-wrap: break-word !important;\n  word-break: break-all !important;\n}\n\n/* 4. \u4EE3\u7801\u5757\u5185\u90E8\u6587\u5B57 (\u5F3A\u5236\u9AD8\u4EAE\u989C\u8272) */\n.note-to-mp .code-section code,\n.note-to-mp .code-section span {\n  background-color: transparent !important;\n  color: #e0e6ed !important;\n  padding: 0;\n  border-radius: 0;\n  display: inline;\n  font-family: Menlo, Monaco, Consolas, "Courier New", monospace, sans-serif;\n  font-size: 14px;\n}\n\n/* \u56FE\u7247 */\n.note-to-mp img {\n  max-width: 100%;\n  max-height: 600px !important;\n  height: auto;\n  display: block;\n  margin: 20px auto 41px;\n  border-radius: 15px;\n  box-shadow: 0 15px 30px -6px rgba(33, 150, 243, 0.25), 0 9px 18px -9px rgba(0, 0, 0, 0.3), 0 -6px 18px -4px rgba(0, 0, 0, 0.025);\n}\n.note-to-mp img:hover { transform: translateY(-8px); box-shadow: 0 20px 40px -8px rgba(33, 150, 243, 0.3), 0 12px 24px -12px rgba(0, 0, 0, 0.35); }\n\n/* \u8868\u683C */\n.note-to-mp table { width: 100%; margin: 18px 0; border-collapse: collapse; font-size: 15px; }\n.note-to-mp th { background-color: #f5f5f7 !important; padding: 16px 20px; text-align: left; border: none; font-weight: 500; color: #1d1d1f !important; }\n.note-to-mp td { padding: 16px 20px; border: none; border-top: 1px solid #d2d2d7; color: #6e6e73 !important; font-weight: 300; }\n\n/* WeChatPB \u89C6\u89C9\u6821\u51C6\uFF1A\u63D0\u9AD8\u957F\u6587\u5BF9\u6BD4\u5EA6\uFF0C\u907F\u514D\u7EC6\u7070\u6587\u5B57\u53D1\u865A */\n.note-to-mp { color: #3f3f46 !important; }\n.note-to-mp p,\n.note-to-mp li,\n.note-to-mp td { color: #3f3f46 !important; font-weight: 400; }\n.note-to-mp blockquote { color: #52525b !important; }\n```\n';
 
 // themes/Nikkei-红.md
 var Nikkei_default = '\n```CSS\n/* \u5168\u5C40\u5C5E\u6027 */\n.note-to-mp {\n  max-width: 650px;\n  margin: 0 auto;\n  padding: 20px 12px;\n  font-family: "Hiragino Kaku Gothic ProN", "Yu Gothic", "Meiryo", sans-serif;\n  font-size: 15px;\n  line-height: 1.6 !important;\n  color: #1a1a1a !important;\n  background-color: #fff !important;\n  word-wrap: break-word;\n  word-break: break-word;\n}\n\n/* --- \u6807\u9898\u90E8\u5206 --- */\n.note-to-mp h1 {\n  font-size: 24px;\n  font-weight: 700;\n  color: #000 !important;\n  line-height: 1.3 !important;\n  margin: 25px 0 15px;\n  padding-bottom: 8px;\n  border-bottom: 2px solid #000;\n}\n\n.note-to-mp h2 {\n  font-size: 18px;\n  font-weight: 700;\n  color: #c41230 !important;\n  line-height: 1.4 !important;\n  margin: 20px 0 12px;\n  padding-left: 10px;\n  border-left: 3px solid #c41230;\n}\n\n.note-to-mp h3 {\n  font-size: 16px;\n  font-weight: 600;\n  color: #000 !important;\n  line-height: 1.4 !important;\n  margin: 18px 0 10px;\n  padding: 4px 8px;\n  background-color: #f5f5f5 !important;\n}\n\n.note-to-mp h4 {\n  font-size: 15px;\n  font-weight: 600;\n  color: #333 !important;\n  line-height: 1.5 !important;\n  margin: 15px 0 8px;\n  text-decoration: underline;\n  text-decoration-color: #c41230;\n  text-underline-offset: 3px;\n}\n\n.note-to-mp h5 {\n  font-size: 14px;\n  font-weight: 600;\n  color: #666 !important;\n  line-height: 1.5 !important;\n  margin: 12px 0 6px;\n}\n\n.note-to-mp h6 {\n  font-size: 13px;\n  font-weight: 600;\n  color: #999 !important;\n  line-height: 1.5 !important;\n  margin: 10px 0 5px;\n}\n\n/* \u6BB5\u843D */\n.note-to-mp p {\n  margin: 12px 0 !important;\n  line-height: 1.6 !important;\n  color: #1a1a1a !important;\n  text-align: justify;\n}\n\n/* \u52A0\u7C97 */\n.note-to-mp strong {\n  font-weight: 700;\n  color: #000 !important;\n  background-color: #fff3f3 !important;\n  padding: 0 2px;\n}\n\n/* \u659C\u4F53 */\n.note-to-mp em {\n  font-style: normal;\n  color: #c41230 !important;\n  font-weight: 600;\n}\n\n/* \u4E0B\u5212\u7EBF */\n.note-to-mp u {\n  text-decoration: none;\n  border-bottom: 1px solid #c41230;\n  padding-bottom: 2px;\n}\n\n/* \u94FE\u63A5 */\n.note-to-mp a {\n  color: #0066cc !important;\n  text-decoration: none;\n  border-bottom: 1px solid #0066cc;\n  word-break: break-all;\n}\n\n/* --- \u5217\u8868 --- */\n.note-to-mp ul, .note-to-mp ol {\n  margin: 15px 0;\n  padding-left: 28px;\n}\n.note-to-mp ul { list-style-type: disc; }\n.note-to-mp ol { list-style-type: decimal; }\n\n.note-to-mp li {\n  margin: 6px 0;\n  line-height: 1.6 !important;\n  color: #1a1a1a !important;\n}\n\n/* --- \u5F15\u7528 --- */\n.note-to-mp blockquote {\n  margin: 20px 0;\n  padding: 12px 15px;\n  background-color: transparent !important;\n  border-left: 2px solid #c41230;\n  border-right: 2px solid #c41230;\n  color: #1a1a1a !important;\n  font-size: 14px;\n  line-height: 1.6 !important;\n  font-style: normal;\n  max-width: 100%;\n}\n\n/* --- \u4EE3\u7801\u5757\u90E8\u5206 --- */\n\n/* 1. \u884C\u5185\u4EE3\u7801 */\n.note-to-mp code {\n  font-family: "Courier New", monospace, sans-serif;\n  font-size: 13px;\n  padding: 2px 4px;\n  background-color: #f5f5f5 !important;\n  color: #c41230 !important;\n}\n\n/* 2. \u4EE3\u7801\u5757\u5916\u5C42\u5BB9\u5668 */\n.note-to-mp .code-section {\n  margin: 20px 0;\n  padding: 45px 20px 20px;\n  background-color: #282c34 !important;\n  border-radius: 8px;\n  overflow-x: auto;\n\n  background-image:\n    radial-gradient(circle, #ff5f56 6px, transparent 7px),\n    radial-gradient(circle, #ffbd2e 6px, transparent 7px),\n    radial-gradient(circle, #27c93f 6px, transparent 7px),\n    linear-gradient(#21252b, #21252b);\n  background-size: 14px 14px, 14px 14px, 14px 14px, 100% 36px;\n  background-position: 15px 12px, 35px 12px, 55px 12px, 0 0;\n  background-repeat: no-repeat;\n\n  box-shadow: 0 10px 30px rgba(0,0,0,0.15);\n  border: none;\n}\n\n.note-to-mp .code-section ul { display: none; }\n\n/* 3. pre \u6807\u7B7E\u6837\u5F0F\u91CD\u7F6E */\n.note-to-mp .code-section pre {\n  margin: 0;\n  padding: 0;\n  background: transparent !important;\n  border: none;\n  line-height: 1.4 !important;\n  white-space: pre-wrap !important;\n  word-wrap: break-word !important;\n  word-break: break-all !important;\n}\n\n/* 4. \u4EE3\u7801\u5757\u5185\u90E8\u6587\u5B57 */\n.note-to-mp .code-section code,\n.note-to-mp .code-section span {\n  background-color: transparent !important;\n  color: #e0e6ed !important;\n  padding: 0;\n  border-radius: 0;\n  display: inline;\n  font-family: "Courier New", monospace, sans-serif;\n  font-size: 13px;\n}\n\n/* \u5206\u5272\u7EBF */\n.note-to-mp hr {\n  margin: 30px 0;\n  border: none;\n  height: 1px;\n  background-color: #000 !important;\n}\n\n/* \u56FE\u7247 */\n.note-to-mp img {\n  max-width: 100%;\n  max-height: 400px !important;\n  height: auto;\n  display: block;\n  margin: 20px auto;\n  border: 1px solid #ddd;\n}\n\n/* \u8868\u683C */\n.note-to-mp table { width: 100%; margin: 20px 0; border-collapse: collapse; font-size: 14px; border: 1px solid #000; }\n.note-to-mp th { background-color: #c41230 !important; color: #fff !important; padding: 8px 10px; text-align: left; font-weight: 600; border: 1px solid #c41230; }\n.note-to-mp td { padding: 6px 10px; border: 1px solid #ddd; color: #1a1a1a !important; background-color: #fff !important; }\n.note-to-mp tr { border-bottom: 1px solid #ddd; }\n```\n';
 
 // themes/书刊居中-酒红.md
-var __default = '```CSS\n/* \u5168\u5C40\u5C5E\u6027 */\n.note-to-mp {\n  max-width: 700px;\n  margin: 0 auto;\n  padding: 20px;\n  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", Arial, sans-serif;\n  font-size: 16px;\n  line-height: 1.9 !important;\n  color: #292524 !important;\n  background-color: #fdfbf7 !important;\n  border: 1px solid #e7e5e4;\n  text-align: left !important;\n  word-wrap: break-word;\n  word-break: break-word;\n  letter-spacing: 0.5px;\n}\n\n/* --- \u6807\u9898\u90E8\u5206 --- */\n.note-to-mp h1 {\n  font-size: 18px;\n  font-weight: 400;\n  color: #1c1917 !important;\n  line-height: 24px !important;\n  margin: 32px 0 4px;\n  text-align: center;\n  letter-spacing: 1px;\n  padding-bottom: 18px;\n  background-image: linear-gradient(#9f1239, #9f1239);\n  background-size: 50px 3px;\n  background-position: center bottom;\n  background-repeat: no-repeat;\n}\n\n.note-to-mp h2 {\n  font-size: 18px;\n  font-weight: 400;\n  font-style: italic;\n  color: #44403c !important;\n  line-height: 24px !important;\n  margin: 32px 0 10px;\n  text-align: center;\n  padding-bottom: 12px;\n  background-image: linear-gradient(#9f1239, #9f1239);\n  background-size: 35px 2px;\n  background-position: center bottom;\n  background-repeat: no-repeat;\n}\n\n.note-to-mp h3 {\n  font-size: 18px;\n  font-weight: 400;\n  color: #57534e !important;\n  line-height: 24px !important;\n  margin: 32px 0 12px;\n  text-align: center;\n  padding-bottom: 10px;\n  background-image: linear-gradient(#9f1239, #9f1239);\n  background-size: 30px 2px;\n  background-position: center bottom;\n  background-repeat: no-repeat;\n}\n.note-to-mp h4 {\n  font-size: 18px;\n  font-weight: 400;\n  color: #1d1d1f !important;\n  line-height: 24px !important;\n  margin: 32px 0 14px;\n}\n\n.note-to-mp h5 {\n  font-size: 18px;\n  font-weight: 400;\n  color: #1d1d1f !important;\n  line-height: 24px !important;\n  margin: 32px 0 14px;\n}\n\n.note-to-mp h6 {\n  font-size: 18px;\n  font-weight: 400;\n  color: #1d1d1f !important;\n  line-height: 24px !important;\n  margin: 32px 0 14px;\n}\n\n\n.note-to-mp h4, .note-to-mp h5, .note-to-mp h6 {\n  font-size: 18px;\n  font-weight: 400;\n  color: #78716c !important;\n  line-height: 24px !important;\n  margin: 32px 0 14px;\n  text-align: center;\n  padding-bottom: 8px;\n  background-image: linear-gradient(#9f1239, #9f1239);\n  background-size: 25px 1.5px;\n  background-position: center bottom;\n  background-repeat: no-repeat;\n}\n\n/* \u6BB5\u843D */\n.note-to-mp p {\n  margin: 22px 0 !important;\n  line-height: 1.9 !important;\n  color: #292524 !important;\n  font-weight: 300;\n  text-align: left;\n}\n\n/* \u52A0\u7C97 */\n.note-to-mp strong {\n  font-weight: 500;\n  color: #9f1239 !important;\n}\n\n/* \u659C\u4F53 */\n.note-to-mp em {\n  font-style: italic;\n  color: #9f1239 !important;\n  font-weight: 300;\n}\n\n/* \u4E0B\u5212\u7EBF */\n.note-to-mp u {\n  text-decoration: none;\n  color: #9f1239 !important;\n  border-bottom: 1px solid #9f1239;\n  padding-bottom: 1px;\n}\n\n/* \u94FE\u63A5 */\n.note-to-mp a {\n  color: #9f1239 !important;\n  text-decoration: none;\n  border-bottom: 1px solid #fecdd3;\n  font-weight: 400;\n  word-break: break-all;\n}\n\n/* --- \u5217\u8868\u90E8\u5206 --- */\n.note-to-mp ul, .note-to-mp ol {\n  margin: 22px 0;\n  padding-left: 24px;\n}\n.note-to-mp ul { list-style-type: disc; }\n.note-to-mp ol { list-style-type: decimal; }\n\n.note-to-mp li {\n  margin: 12px 0;\n  line-height: 1.9 !important;\n  color: #292524 !important;\n  font-weight: 300;\n}\n.note-to-mp li::marker {\n  color: #9f1239;\n}\n\n/* --- \u5F15\u7528\u90E8\u5206 --- */\n.note-to-mp blockquote {\n  margin: 45px 0;\n  padding: 0 40px;\n  background-color: transparent !important;\n  border: none;\n  color: #9f1239 !important;\n  font-size: 20px;\n  line-height: 1.8 !important;\n  font-weight: 400;\n  font-style: italic;\n  text-align: center;\n}\n\n/* --- \u4EE3\u7801\u5757\u90E8\u5206 --- */\n\n/* \u884C\u5185\u4EE3\u7801 */\n.note-to-mp code {\n  font-family: Menlo, Monaco, Consolas, "Courier New", monospace, sans-serif;\n  font-size: 15px;\n  padding: 2px 6px;\n  background-color: #fef2f2 !important;\n  color: #9f1239 !important;\n  border-radius: 4px;\n  font-weight: 400;\n}\n\n/* \u4EE3\u7801\u5757\u5916\u5C42\u5BB9\u5668 */\n.note-to-mp .code-section {\n  margin: 30px 0;\n  padding: 45px 20px 20px;\n  background-color: #1c1917 !important;\n  border-radius: 4px;\n  overflow-x: auto;\n  background-image:\n    radial-gradient(circle, #ff5f56 6px, transparent 7px),\n    radial-gradient(circle, #ffbd2e 6px, transparent 7px),\n    radial-gradient(circle, #27c93f 6px, transparent 7px),\n    linear-gradient(#292524, #292524);\n  background-size: 14px 14px, 14px 14px, 14px 14px, 100% 36px;\n  background-position: 15px 12px, 35px 12px, 55px 12px, 0 0;\n  background-repeat: no-repeat;\n  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);\n}\n\n.note-to-mp .code-section ul { display: none; }\n\n.note-to-mp .code-section pre {\n  margin: 0;\n  padding: 0;\n  background: transparent !important;\n  border: none;\n  line-height: 1.6 !important;\n  white-space: pre-wrap !important;\n  word-wrap: break-word !important;\n  word-break: break-all !important;\n}\n\n.note-to-mp .code-section code,\n.note-to-mp .code-section span {\n  background-color: transparent !important;\n  color: #fecdd3 !important;\n  padding: 0;\n  font-family: Menlo, Monaco, Consolas, "Courier New", monospace, sans-serif;\n  font-size: 14px;\n  font-weight: 400;\n}\n\n/* \u56FE\u7247 */\n.note-to-mp img {\n  max-width: 100%;\n  height: auto;\n  display: block;\n  margin: 35px auto;\n  border-radius: 2px;\n  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);\n}\n\n/* \u8868\u683C */\n.note-to-mp table {\n  width: 100%;\n  margin: 30px 0;\n  border-collapse: collapse;\n  font-size: 16px;\n}\n.note-to-mp th {\n  background-color: #fef2f2 !important;\n  padding: 16px 20px;\n  text-align: left;\n  border: none;\n  font-weight: 500;\n  color: #9f1239 !important;\n  border-bottom: 2px solid #9f1239;\n}\n.note-to-mp td {\n  padding: 16px 20px;\n  border: none;\n  border-bottom: 1px solid #e7e5e4;\n  color: #292524 !important;\n  font-weight: 300;\n}\n```\n';
+var __default = '```CSS\n/* \u5168\u5C40\u5C5E\u6027 */\n.note-to-mp {\n  max-width: 700px;\n  margin: 0 auto;\n  padding: 20px;\n  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", Arial, sans-serif;\n  font-size: 16px;\n  line-height: 1.9 !important;\n  color: #292524 !important;\n  background-color: #fdfbf7 !important;\n  border: 1px solid #e7e5e4;\n  text-align: left !important;\n  word-wrap: break-word;\n  word-break: break-word;\n  letter-spacing: 0.5px;\n}\n\n/* --- \u6807\u9898\u90E8\u5206 --- */\n.note-to-mp h1 {\n  font-size: 18px;\n  font-weight: 400;\n  color: #1c1917 !important;\n  line-height: 24px !important;\n  margin: 32px 0 4px;\n  text-align: center;\n  letter-spacing: 1px;\n  padding-bottom: 18px;\n  background-image: linear-gradient(#9f1239, #9f1239);\n  background-size: 50px 3px;\n  background-position: center bottom;\n  background-repeat: no-repeat;\n}\n\n.note-to-mp h2 {\n  font-size: 18px;\n  font-weight: 400;\n  font-style: italic;\n  color: #44403c !important;\n  line-height: 24px !important;\n  margin: 32px 0 10px;\n  text-align: center;\n  padding-bottom: 12px;\n  background-image: linear-gradient(#9f1239, #9f1239);\n  background-size: 35px 2px;\n  background-position: center bottom;\n  background-repeat: no-repeat;\n}\n\n.note-to-mp h3 {\n  font-size: 18px;\n  font-weight: 400;\n  color: #57534e !important;\n  line-height: 24px !important;\n  margin: 32px 0 12px;\n  text-align: center;\n  padding-bottom: 10px;\n  background-image: linear-gradient(#9f1239, #9f1239);\n  background-size: 30px 2px;\n  background-position: center bottom;\n  background-repeat: no-repeat;\n}\n.note-to-mp h4 {\n  font-size: 18px;\n  font-weight: 400;\n  color: #1d1d1f !important;\n  line-height: 24px !important;\n  margin: 32px 0 14px;\n}\n\n.note-to-mp h5 {\n  font-size: 18px;\n  font-weight: 400;\n  color: #1d1d1f !important;\n  line-height: 24px !important;\n  margin: 32px 0 14px;\n}\n\n.note-to-mp h6 {\n  font-size: 18px;\n  font-weight: 400;\n  color: #1d1d1f !important;\n  line-height: 24px !important;\n  margin: 32px 0 14px;\n}\n\n\n.note-to-mp h4, .note-to-mp h5, .note-to-mp h6 {\n  font-size: 18px;\n  font-weight: 400;\n  color: #78716c !important;\n  line-height: 24px !important;\n  margin: 32px 0 14px;\n  text-align: center;\n  padding-bottom: 8px;\n  background-image: linear-gradient(#9f1239, #9f1239);\n  background-size: 25px 1.5px;\n  background-position: center bottom;\n  background-repeat: no-repeat;\n}\n\n/* \u6BB5\u843D */\n.note-to-mp p {\n  margin: 22px 0 !important;\n  line-height: 1.9 !important;\n  color: #292524 !important;\n  font-weight: 300;\n  text-align: left;\n}\n\n/* \u52A0\u7C97 */\n.note-to-mp strong {\n  font-weight: 500;\n  color: #9f1239 !important;\n}\n\n/* \u659C\u4F53 */\n.note-to-mp em {\n  font-style: italic;\n  color: #9f1239 !important;\n  font-weight: 300;\n}\n\n/* \u4E0B\u5212\u7EBF */\n.note-to-mp u {\n  text-decoration: none;\n  color: #9f1239 !important;\n  border-bottom: 1px solid #9f1239;\n  padding-bottom: 1px;\n}\n\n/* \u94FE\u63A5 */\n.note-to-mp a {\n  color: #9f1239 !important;\n  text-decoration: none;\n  border-bottom: 1px solid #fecdd3;\n  font-weight: 400;\n  word-break: break-all;\n}\n\n/* --- \u5217\u8868\u90E8\u5206 --- */\n.note-to-mp ul, .note-to-mp ol {\n  margin: 22px 0;\n  padding-left: 24px;\n}\n.note-to-mp ul { list-style-type: disc; }\n.note-to-mp ol { list-style-type: decimal; }\n\n.note-to-mp li {\n  margin: 12px 0;\n  line-height: 1.9 !important;\n  color: #292524 !important;\n  font-weight: 300;\n}\n.note-to-mp li::marker {\n  color: #9f1239;\n}\n\n/* --- \u5F15\u7528\u90E8\u5206 --- */\n.note-to-mp blockquote {\n  margin: 45px 0;\n  padding: 0 40px;\n  background-color: transparent !important;\n  border: none;\n  color: #9f1239 !important;\n  font-size: 20px;\n  line-height: 1.8 !important;\n  font-weight: 400;\n  font-style: italic;\n  text-align: center;\n}\n\n/* --- \u4EE3\u7801\u5757\u90E8\u5206 --- */\n\n/* \u884C\u5185\u4EE3\u7801 */\n.note-to-mp code {\n  font-family: Menlo, Monaco, Consolas, "Courier New", monospace, sans-serif;\n  font-size: 15px;\n  padding: 2px 6px;\n  background-color: #fef2f2 !important;\n  color: #9f1239 !important;\n  border-radius: 4px;\n  font-weight: 400;\n}\n\n/* \u4EE3\u7801\u5757\u5916\u5C42\u5BB9\u5668 */\n.note-to-mp .code-section {\n  margin: 30px 0;\n  padding: 45px 20px 20px;\n  background-color: #1c1917 !important;\n  border-radius: 4px;\n  overflow-x: auto;\n  background-image:\n    radial-gradient(circle, #ff5f56 6px, transparent 7px),\n    radial-gradient(circle, #ffbd2e 6px, transparent 7px),\n    radial-gradient(circle, #27c93f 6px, transparent 7px),\n    linear-gradient(#292524, #292524);\n  background-size: 14px 14px, 14px 14px, 14px 14px, 100% 36px;\n  background-position: 15px 12px, 35px 12px, 55px 12px, 0 0;\n  background-repeat: no-repeat;\n  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);\n}\n\n.note-to-mp .code-section ul { display: none; }\n\n.note-to-mp .code-section pre {\n  margin: 0;\n  padding: 0;\n  background: transparent !important;\n  border: none;\n  line-height: 1.6 !important;\n  white-space: pre-wrap !important;\n  word-wrap: break-word !important;\n  word-break: break-all !important;\n}\n\n.note-to-mp .code-section code,\n.note-to-mp .code-section span {\n  background-color: transparent !important;\n  color: #fecdd3 !important;\n  padding: 0;\n  font-family: Menlo, Monaco, Consolas, "Courier New", monospace, sans-serif;\n  font-size: 14px;\n  font-weight: 400;\n}\n\n/* \u56FE\u7247 */\n.note-to-mp img {\n  max-width: 100%;\n  height: auto;\n  display: block;\n  margin: 35px auto;\n  border-radius: 2px;\n  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);\n}\n\n/* \u8868\u683C */\n.note-to-mp table {\n  width: 100%;\n  margin: 30px 0;\n  border-collapse: collapse;\n  font-size: 16px;\n}\n.note-to-mp th {\n  background-color: #fef2f2 !important;\n  padding: 16px 20px;\n  text-align: left;\n  border: none;\n  font-weight: 500;\n  color: #9f1239 !important;\n  border-bottom: 2px solid #9f1239;\n}\n.note-to-mp td {\n  padding: 16px 20px;\n  border: none;\n  border-bottom: 1px solid #e7e5e4;\n  color: #292524 !important;\n  font-weight: 300;\n}\n\n/* WeChatPB \u89C6\u89C9\u6821\u51C6\uFF1A\u4FDD\u7559\u4E66\u520A\u6C14\u8D28\uFF0C\u540C\u65F6\u589E\u5F3A\u6B63\u6587\u9605\u8BFB\u6027 */\n.note-to-mp p,\n.note-to-mp li,\n.note-to-mp td { color: #3f3a37 !important; font-weight: 400; }\n.note-to-mp blockquote { color: #6f1735 !important; font-style: normal; }\n```\n';
 
 // themes/层级书签-蓝.md
 var __default2 = '```CSS\n/* \u5168\u5C40\u5C5E\u6027 */\n.note-to-mp {\n  max-width: 700px;\n  margin: 0 auto;\n  padding: 40px;\n  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", Arial, sans-serif;\n  font-size: 16px;\n  line-height: 1.75 !important;\n  color: #374151 !important;\n  background-color: #ffffff !important;\n  border: 1px solid #e5e7eb;\n  text-align: left !important;\n  word-wrap: break-word;\n  word-break: break-word;\n}\n\n/* --- \u6807\u9898\u90E8\u5206 --- */\n.note-to-mp h1 {\n  font-size: 18px;\n  font-weight: 400;\n  color: #111827 !important;\n  line-height: 24px !important;\n  margin: 28px 0 18px;\n  padding-left: 16px;\n  border-left: 6px solid #2563eb;\n}\n\n.note-to-mp h2 {\n  font-size: 18px;\n  font-weight: 400;\n  color: #1f293b !important;\n  line-height: 24px !important;\n  margin: 28px 0 18px;\n  padding-left: 12px;\n  border-left: 4px solid #93c5fd;\n}\n\n.note-to-mp h3 {\n  font-size: 18px;\n  font-weight: 400;\n  color: #1f293b !important;\n  line-height: 24px !important;\n  margin: 28px 0 18px;\n  padding-left: 10px;\n  border-left: 3px solid #bfdbfe;\n}\n.note-to-mp h4 {\n  font-size: 18px;\n  font-weight: 400;\n  color: #1d1d1f !important;\n  line-height: 24px !important;\n  margin: 28px 0 18px;\n}\n\n.note-to-mp h5 {\n  font-size: 18px;\n  font-weight: 400;\n  color: #1d1d1f !important;\n  line-height: 24px !important;\n  margin: 28px 0 18px;\n}\n\n.note-to-mp h6 {\n  font-size: 18px;\n  font-weight: 400;\n  color: #1d1d1f !important;\n  line-height: 24px !important;\n  margin: 28px 0 18px;\n}\n\n\n.note-to-mp h4, .note-to-mp h5, .note-to-mp h6 {\n  font-size: 18px;\n  font-weight: 400;\n  color: #374151 !important;\n  line-height: 24px !important;\n  margin: 28px 0 18px;\n}\n\n/* \u6BB5\u843D */\n.note-to-mp p {\n  margin: 18px 0 !important;\n  line-height: 1.75 !important;\n  color: #374151 !important;\n  font-weight: 300;\n  text-align: left;\n}\n\n/* \u52A0\u7C97 */\n.note-to-mp strong {\n  font-weight: 500;\n  color: #2563eb !important;\n}\n\n/* \u659C\u4F53 */\n.note-to-mp em {\n  font-style: italic;\n  color: #4b5563 !important;\n  font-weight: 300;\n}\n\n/* \u4E0B\u5212\u7EBF */\n.note-to-mp u {\n  text-decoration: none;\n  border-bottom: 2px solid #93c5fd;\n  padding-bottom: 1px;\n}\n\n/* \u94FE\u63A5 */\n.note-to-mp a {\n  color: #2563eb !important;\n  text-decoration: none;\n  border-bottom: 1px solid rgba(37, 99, 235, 0.3);\n  font-weight: 400;\n  word-break: break-all;\n}\n\n/* --- \u5217\u8868\u90E8\u5206 --- */\n.note-to-mp ul, .note-to-mp ol {\n  margin: 18px 0;\n  padding-left: 20px;\n}\n.note-to-mp ul { list-style-type: disc; }\n.note-to-mp ol { list-style-type: decimal; }\n\n.note-to-mp li {\n  margin: 8px 0;\n  line-height: 1.75 !important;\n  color: #374151 !important;\n  font-weight: 300;\n}\n.note-to-mp li::marker {\n  color: #2563eb;\n}\n\n/* --- \u5F15\u7528\u90E8\u5206 --- */\n.note-to-mp blockquote {\n  margin: 30px 0;\n  padding: 16px 20px;\n  background-color: #eff6ff !important;\n  border-left: 4px solid #2563eb;\n  border-radius: 0 4px 4px 0;\n  color: #1e40af !important;\n  font-size: 15px;\n  line-height: 1.7 !important;\n  font-weight: 400;\n  font-style: italic;\n}\n\n/* --- \u4EE3\u7801\u5757\u90E8\u5206 --- */\n\n/* \u884C\u5185\u4EE3\u7801 */\n.note-to-mp code {\n  font-family: Menlo, Monaco, Consolas, "Courier New", monospace, sans-serif;\n  font-size: 14px;\n  padding: 2px 6px;\n  background-color: #f3f4f6 !important;\n  color: #1f2937 !important;\n  border-radius: 4px;\n  font-weight: 400;\n}\n\n/* \u4EE3\u7801\u5757\u5916\u5C42\u5BB9\u5668 */\n.note-to-mp .code-section {\n  margin: 24px 0;\n  padding: 45px 20px 20px;\n  background-color: #1e293b !important;\n  border-radius: 8px;\n  overflow-x: auto;\n  background-image:\n    radial-gradient(circle, #ff5f56 6px, transparent 7px),\n    radial-gradient(circle, #ffbd2e 6px, transparent 7px),\n    radial-gradient(circle, #27c93f 6px, transparent 7px),\n    linear-gradient(#0f172a, #0f172a);\n  background-size: 14px 14px, 14px 14px, 14px 14px, 100% 36px;\n  background-position: 15px 12px, 35px 12px, 55px 12px, 0 0;\n  background-repeat: no-repeat;\n  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15);\n}\n\n.note-to-mp .code-section ul { display: none; }\n\n.note-to-mp .code-section pre {\n  margin: 0;\n  padding: 0;\n  background: transparent !important;\n  border: none;\n  line-height: 1.6 !important;\n  white-space: pre-wrap !important;\n  word-wrap: break-word !important;\n  word-break: break-all !important;\n}\n\n.note-to-mp .code-section code,\n.note-to-mp .code-section span {\n  background-color: transparent !important;\n  color: #93c5fd !important;\n  padding: 0;\n  font-family: Menlo, Monaco, Consolas, "Courier New", monospace, sans-serif;\n  font-size: 14px;\n}\n\n/* \u56FE\u7247 */\n.note-to-mp img {\n  max-width: 100%;\n  height: auto;\n  display: block;\n  margin: 24px auto;\n  border-radius: 6px;\n  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.15);\n}\n\n/* \u8868\u683C */\n.note-to-mp table {\n  width: 100%;\n  margin: 24px 0;\n  border-collapse: collapse;\n  font-size: 15px;\n}\n.note-to-mp th {\n  background-color: #eff6ff !important;\n  padding: 14px 18px;\n  text-align: left;\n  border: none;\n  font-weight: 500;\n  color: #1e40af !important;\n  border-bottom: 2px solid #2563eb;\n}\n.note-to-mp td {\n  padding: 14px 18px;\n  border: none;\n  border-bottom: 1px solid #e5e7eb;\n  color: #374151 !important;\n  font-weight: 300;\n}\n```\n';
 
 // themes/报刊夹线-红.md
-var __default3 = '```CSS\n/* Hische\xB7\u7F16\u8F91\u90E8 */\n.note-to-mp {\n  max-width: 700px;\n  margin: 0 auto;\n  padding: 20px;\n  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", Arial, sans-serif;\n  font-size: 16px;\n  line-height: 1.75 !important;\n  color: #2c2c2c !important;\n  background-color: #fffef9 !important;\n  word-wrap: break-word;\n}\n\n/* --- \u6807\u9898 --- */\n.note-to-mp h1 {\n  font-size: 18px;\n  font-weight: 400;\n  color: #c9302c !important;\n  line-height: 24px !important;\n  margin: 38px 0 28px;\n  letter-spacing: -0.03em;\n  text-align: center;\n}\n\n.note-to-mp h2 {\n  font-size: 18px;\n  font-weight: 400;\n  color: #2c2c2c !important;\n  line-height: 24px !important;\n  margin: 38px 0 28px;\n  letter-spacing: -0.02em;\n  border-top: 1px solid #c9302c;\n  border-bottom: 1px solid #c9302c;\n  padding: 15px 0;\n  text-align: center;\n}\n\n.note-to-mp h3 {\n  font-size: 18px;\n  font-weight: 400;\n  color: #2c2c2c !important;\n  line-height: 24px !important;\n  margin: 38px 0 28px;\n}\n\n.note-to-mp h4 {\n  font-size: 18px;\n  font-weight: 400;\n  color: #2c2c2c !important;\n  line-height: 24px !important;\n  margin: 38px 0 28px;\n  text-transform: uppercase;\n  letter-spacing: 0.05em;\n}\n\n.note-to-mp h5 {\n  font-size: 18px;\n  font-weight: 400;\n  color: #2c2c2c !important;\n  line-height: 24px !important;\n  margin: 38px 0 28px;\n  font-style: italic;\n}\n\n.note-to-mp h6 {\n  font-size: 18px;\n  font-weight: 400;\n  color: #666 !important;\n  line-height: 24px !important;\n  margin: 38px 0 28px;\n}\n\n/* --- \u6BB5\u843D --- */\n.note-to-mp p {\n  font-size: 16px;\n  margin: 28px 0 !important;\n  line-height: 1.75 !important;\n  color: #2c2c2c !important;\n  font-weight: 300;\n  text-align: justify;\n}\n\n/* --- \u5F3A\u8C03 --- */\n.note-to-mp strong {\n  font-weight: 500;\n  color: #c9302c !important;\n  letter-spacing: 0.02em;\n}\n\n.note-to-mp em {\n  font-style: italic;\n  color: #2c2c2c !important;\n  font-weight: 300;\n}\n\n/* --- \u94FE\u63A5 --- */\n.note-to-mp a {\n  color: #c9302c !important;\n  text-decoration: none;\n  font-weight: 400;\n  border-bottom: 1px solid #c9302c;\n}\n\n/* --- \u5217\u8868 --- */\n.note-to-mp ul,\n.note-to-mp ol {\n  margin: 35px 0;\n  padding-left: 25px;\n}\n\n.note-to-mp ul { list-style: disc; }\n.note-to-mp ol { list-style: decimal; }\n\n.note-to-mp li {\n  margin: 12px 0;\n  line-height: 1.75 !important;\n  color: #2c2c2c !important;\n  font-weight: 300;\n}\n\n/* --- \u5F15\u7528 --- */\n.note-to-mp blockquote {\n  margin: 45px 0;\n  padding: 0 40px;\n  background-color: transparent !important;\n  color: #2c2c2c !important;\n  font-size: 14px;\n  line-height: 1.6 !important;\n  font-weight: 400;\n  font-style: italic;\n  text-align: center;\n}\n\n/* --- \u884C\u5185\u4EE3\u7801 --- */\n.note-to-mp code {\n  font-family: Menlo, Monaco, Consolas, "Courier New", monospace, sans-serif;\n  font-size: 14px;\n  padding: 2px 6px;\n  background-color: #f9f9f9 !important;\n  color: #c9302c !important;\n  border: 1px solid #e0e0e0;\n}\n\n/* --- \u4EE3\u7801\u5757 --- */\n.note-to-mp pre {\n  margin: 40px 0;\n  padding: 30px;\n  background-color: #f9f9f9 !important;\n  border-left: 5px solid #c9302c;\n  overflow-x: auto;\n  line-height: 1.6 !important;\n}\n\n/* --- \u5206\u9694\u7EBF --- */\n.note-to-mp hr {\n  margin: 70px auto;\n  border: none;\n  height: 1px;\n  background-color: #c9302c !important;\n  max-width: 100px;\n}\n\n/* --- \u56FE\u7247 --- */\n.note-to-mp img {\n  max-width: 100%;\n  max-height: 600px !important;\n  height: auto;\n  display: block;\n  margin: 20px auto;\n  border: 1px solid #e0e0e0;\n}\n\n/* --- \u8868\u683C --- */\n.note-to-mp table {\n  width: 100%;\n  margin: 40px 0;\n  border-collapse: collapse;\n  font-size: 15px;\n}\n\n.note-to-mp th {\n  background-color: #f9f9f9 !important;\n  padding: 15px;\n  text-align: left;\n  border-top: 2px solid #c9302c;\n  border-bottom: 2px solid #c9302c;\n  font-weight: 500;\n  color: #2c2c2c !important;\n  text-transform: uppercase;\n  letter-spacing: 0.05em;\n  font-size: 14px;\n}\n\n.note-to-mp td {\n  padding: 15px;\n  border-bottom: 1px solid #e0e0e0;\n  color: #2c2c2c !important;\n  font-weight: 300;\n}\n\n.note-to-mp tr {\n  border-bottom: 1px solid #e0e0e0;\n}\n\n```\n';
-
-// themes/流光底线-金蓝.md
-var __default4 = '\n```CSS\n/* \u5168\u5C40\u5C5E\u6027 */\n.note-to-mp {\n  max-width: 620px;\n  margin: 0 auto;\n  padding: 20px 24px;\n  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", Arial, sans-serif;\n  font-size: 16px;\n  line-height: 21px !important;\n  color: #6e6e73 !important;\n  background-color: #fbfbfd !important;\n  text-align: left !important;\n  word-wrap: break-word;\n  word-break: break-word;\n}\n\n/* --- \u6807\u9898\u90E8\u5206 --- */\n.note-to-mp h1 {\n  font-size: 18px;\n  font-weight: 400;\n  color: #1d1d1f !important;\n  line-height: 24px !important;\n  margin: 28px 0 6px;\n  letter-spacing: -0.03em;\n  display: inline-block;\n  padding-bottom: 12px;\n  padding-right: 10px;\n  background-image: linear-gradient(90deg, #2196F3 0%, #FFD700 40%, #2196F3 70%, rgba(33, 150, 243, 0.5) 90%, transparent 100%);\n  background-position: left bottom;\n  background-size: 100% 3px;\n  background-repeat: no-repeat;\n}\n\n.note-to-mp h2 {\n  font-size: 18px;\n  font-weight: 400;\n  color: #1d1d1f !important;\n  line-height: 24px !important;\n  margin: 28px 0 8px;\n  letter-spacing: -0.02em;\n  display: inline-block;\n  padding-bottom: 10px;\n  padding-right: 10px;\n  background-image: linear-gradient(90deg, #2196F3 0%, #FFD700 40%, #2196F3 70%, rgba(33, 150, 243, 0.5) 90%, transparent 100%);\n  background-position: left bottom;\n  background-size: 100% 2px;\n  background-repeat: no-repeat;\n}\n\n.note-to-mp h3, .note-to-mp h4, .note-to-mp h5, .note-to-mp h6 {\n  font-size: 18px;\n  color: #1d1d1f !important;\n  line-height: 24px !important;\n  margin: 28px 0 10px;\n  display: inline-block;\n  padding-bottom: 8px;\n  padding-right: 10px;\n  background-image: linear-gradient(90deg, #2196F3 0%, #FFD700 40%, #2196F3 70%, rgba(33, 150, 243, 0.5) 90%, transparent 100%);\n  background-position: left bottom;\n  background-repeat: no-repeat;\n}\n.note-to-mp h4 {\n  font-size: 18px;\n  font-weight: 400;\n  color: #1d1d1f !important;\n  line-height: 24px !important;\n  margin: 28px 0 12px;\n}\n\n.note-to-mp h5 {\n  font-size: 18px;\n  font-weight: 400;\n  color: #1d1d1f !important;\n  line-height: 24px !important;\n  margin: 28px 0 12px;\n}\n\n.note-to-mp h6 {\n  font-size: 18px;\n  font-weight: 400;\n  color: #1d1d1f !important;\n  line-height: 24px !important;\n  margin: 28px 0 12px;\n}\n\n.note-to-mp h3 { font-weight: 400; letter-spacing: -0.01em; background-size: 100% 2px; }\n.note-to-mp h4, .note-to-mp h5, .note-to-mp h6 { font-weight: 400; padding-bottom: 6px; background-size: 100% 1.5px; }\n\n\n/* \u6BB5\u843D */\n.note-to-mp p {\n  margin: 18px 0 !important;\n  line-height: 24px !important;\n  color: #6e6e73 !important;\n  font-weight: 300;\n  text-align: left;\n}\n\n/* \u52A0\u7C97 */\n.note-to-mp strong {\n  font-weight: 500;\n  color: #1d1d1f !important;\n}\n\n/* \u659C\u4F53 */\n.note-to-mp em {\n  font-style: normal;\n  color: #6e6e73 !important;\n  font-weight: 300;\n}\n\n/* \u4E0B\u5212\u7EBF */\n.note-to-mp u {\n  text-decoration: none;\n  background-image: linear-gradient(90deg, #2196F3 0%, #FFD700 40%, #2196F3 70%, rgba(33, 150, 243, 0.5) 90%, transparent 100%);\n  background-position: left bottom;\n  background-size: 100% 0.75px;\n  background-repeat: repeat-x;\n  padding-bottom: 4px;\n}\n\n/* \u94FE\u63A5 */\n.note-to-mp a {\n  color: #06c !important;\n  text-decoration: none;\n  font-weight: 400;\n  word-break: break-all; \n}\n\n/* --- \u5217\u8868\u4F18\u5316\u7248 --- */\n.note-to-mp ul, .note-to-mp ol {\n  margin: 18px 0;\n  padding-left: 22px; \n}\n.note-to-mp ul { list-style-type: disc; }\n.note-to-mp ol { list-style-type: decimal; }\n\n.note-to-mp li {\n  margin: 8px 0; \n  line-height: 24px !important; \n  color: #6e6e73 !important; \n  font-weight: 300;\n  padding-left: 0; \n  position: relative; \n}\n\n/* --- \u5F15\u7528\u4F18\u5316\u7248 --- */\n.note-to-mp blockquote {\n  margin: 18px 0;\n  padding: 12px 16px;\n  background-color: #f5f5f7 !important; \n  border-left: 4px solid #424245; \n  border-radius: 4px;\n  \n  color: #6e6e73 !important;\n  font-size: 14px; \n  line-height: 1.6 !important;\n  font-weight: 400;\n  text-align: left;\n  font-style: normal;\n  max-width: 100%;\n}\n\n/* --- \u4EE3\u7801\u5757\u90E8\u5206 --- */\n\n/* 1. \u884C\u5185\u4EE3\u7801 (\u6587\u5B57\u4E2D\u95F4\u7684\u77ED\u4EE3\u7801) */\n.note-to-mp code {\n  font-family: Menlo, Monaco, Consolas, "Courier New", monospace, sans-serif;\n  font-size: 14px;\n  padding: 2px 6px;\n  background-color: #f5f5f7 !important;\n  color: #6e6e73 !important;\n  border-radius: 6px;\n  font-weight: 400;\n}\n\n/* 2. \u4EE3\u7801\u5757\u5916\u5C42\u5BB9\u5668 (Mac\u7A97\u53E3\u98CE\u683C) */\n.note-to-mp .code-section {\n  margin: 24px 0;\n  padding: 45px 20px 20px; \n  background-color: #282c34 !important; /* \u6DF1\u8272\u80CC\u666F */\n  border-radius: 8px;\n  overflow-x: auto; \n\n  /* \u7ED8\u5236Mac\u4E09\u8272\u70B9\u548C\u9876\u90E8\u680F */\n  background-image:\n    radial-gradient(circle, #ff5f56 6px, transparent 7px),\n    radial-gradient(circle, #ffbd2e 6px, transparent 7px),\n    radial-gradient(circle, #27c93f 6px, transparent 7px),\n    linear-gradient(#21252b, #21252b);\n  background-size: 14px 14px, 14px 14px, 14px 14px, 100% 36px;\n  background-position: 15px 12px, 35px 12px, 55px 12px, 0 0;\n  background-repeat: no-repeat;\n\n  box-shadow: 0 10px 30px rgba(0,0,0,0.15);\n  border: none;\n}\n\n.note-to-mp .code-section ul { display: none; }\n\n/* 3. pre \u6807\u7B7E\u6837\u5F0F\u91CD\u7F6E (\u81EA\u52A8\u6362\u884C) */\n.note-to-mp .code-section pre {\n  margin: 0;\n  padding: 0;\n  background: transparent !important;\n  border: none;\n  line-height: 1.6 !important;\n  white-space: pre-wrap !important; \n  word-wrap: break-word !important;\n  word-break: break-all !important; \n}\n\n/* 4. \u4EE3\u7801\u5757\u5185\u90E8\u6587\u5B57 (\u5F3A\u5236\u9AD8\u4EAE\u989C\u8272) */\n/* \u5305\u542B span \u662F\u4E3A\u4E86\u8986\u76D6\u539F\u672C\u53EF\u80FD\u5B58\u5728\u7684\u6DF1\u8272\u8BED\u6CD5\u9AD8\u4EAE */\n.note-to-mp .code-section code,\n.note-to-mp .code-section span {\n  background-color: transparent !important;\n  color: #e0e6ed !important; /* \u5F3A\u5236\u6539\u4E3A\u4EAE\u767D\u7070\u8272 */\n  padding: 0;\n  border-radius: 0;\n  display: inline;\n  font-family: Menlo, Monaco, Consolas, "Courier New", monospace, sans-serif;\n  font-size: 14px;\n}\n\n/* \u56FE\u7247 */\n.note-to-mp img {\n  max-width: 100%;\n  max-height: 600px !important;\n  height: auto;\n  display: block;\n  margin: 20px auto 41px;\n  border-radius: 15px;\n  box-shadow: 0 15px 30px -6px rgba(33, 150, 243, 0.25), 0 9px 18px -9px rgba(0, 0, 0, 0.3), 0 -6px 18px -4px rgba(0, 0, 0, 0.025);\n}\n.note-to-mp img:hover { transform: translateY(-8px); box-shadow: 0 20px 40px -8px rgba(33, 150, 243, 0.3), 0 12px 24px -12px rgba(0, 0, 0, 0.35); }\n\n/* \u8868\u683C */\n.note-to-mp table { width: 100%; margin: 18px 0; border-collapse: collapse; font-size: 15px; }\n.note-to-mp th { background-color: #f5f5f7 !important; padding: 16px 20px; text-align: left; border: none; font-weight: 500; color: #1d1d1f !important; }\n.note-to-mp td { padding: 16px 20px; border: none; border-top: 1px solid #d2d2d7; color: #6e6e73 !important; font-weight: 300; }\n```\n';
+var __default3 = '```CSS\n/* Hische\xB7\u7F16\u8F91\u90E8 */\n.note-to-mp {\n  max-width: 700px;\n  margin: 0 auto;\n  padding: 20px;\n  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", Arial, sans-serif;\n  font-size: 16px;\n  line-height: 1.75 !important;\n  color: #2c2c2c !important;\n  background-color: #fffef9 !important;\n  word-wrap: break-word;\n}\n\n/* --- \u6807\u9898 --- */\n.note-to-mp h1 {\n  font-size: 18px;\n  font-weight: 400;\n  color: #c9302c !important;\n  line-height: 24px !important;\n  margin: 38px 0 28px;\n  letter-spacing: -0.03em;\n  text-align: center;\n}\n\n.note-to-mp h2 {\n  font-size: 18px;\n  font-weight: 400;\n  color: #2c2c2c !important;\n  line-height: 24px !important;\n  margin: 38px 0 28px;\n  letter-spacing: -0.02em;\n  border-top: 1px solid #c9302c;\n  border-bottom: 1px solid #c9302c;\n  padding: 15px 0;\n  text-align: center;\n}\n\n.note-to-mp h3 {\n  font-size: 18px;\n  font-weight: 400;\n  color: #2c2c2c !important;\n  line-height: 24px !important;\n  margin: 38px 0 28px;\n}\n\n.note-to-mp h4 {\n  font-size: 18px;\n  font-weight: 400;\n  color: #2c2c2c !important;\n  line-height: 24px !important;\n  margin: 38px 0 28px;\n  text-transform: uppercase;\n  letter-spacing: 0.05em;\n}\n\n.note-to-mp h5 {\n  font-size: 18px;\n  font-weight: 400;\n  color: #2c2c2c !important;\n  line-height: 24px !important;\n  margin: 38px 0 28px;\n  font-style: italic;\n}\n\n.note-to-mp h6 {\n  font-size: 18px;\n  font-weight: 400;\n  color: #666 !important;\n  line-height: 24px !important;\n  margin: 38px 0 28px;\n}\n\n/* --- \u6BB5\u843D --- */\n.note-to-mp p {\n  font-size: 16px;\n  margin: 28px 0 !important;\n  line-height: 1.75 !important;\n  color: #2c2c2c !important;\n  font-weight: 300;\n  text-align: justify;\n}\n\n/* --- \u5F3A\u8C03 --- */\n.note-to-mp strong {\n  font-weight: 500;\n  color: #c9302c !important;\n  letter-spacing: 0.02em;\n}\n\n.note-to-mp em {\n  font-style: italic;\n  color: #2c2c2c !important;\n  font-weight: 300;\n}\n\n/* --- \u94FE\u63A5 --- */\n.note-to-mp a {\n  color: #c9302c !important;\n  text-decoration: none;\n  font-weight: 400;\n  border-bottom: 1px solid #c9302c;\n}\n\n/* --- \u5217\u8868 --- */\n.note-to-mp ul,\n.note-to-mp ol {\n  margin: 35px 0;\n  padding-left: 25px;\n}\n\n.note-to-mp ul { list-style: disc; }\n.note-to-mp ol { list-style: decimal; }\n\n.note-to-mp li {\n  margin: 12px 0;\n  line-height: 1.75 !important;\n  color: #2c2c2c !important;\n  font-weight: 300;\n}\n\n/* --- \u5F15\u7528 --- */\n.note-to-mp blockquote {\n  margin: 45px 0;\n  padding: 0 40px;\n  background-color: transparent !important;\n  color: #2c2c2c !important;\n  font-size: 14px;\n  line-height: 1.6 !important;\n  font-weight: 400;\n  font-style: italic;\n  text-align: center;\n}\n\n/* --- \u884C\u5185\u4EE3\u7801 --- */\n.note-to-mp code {\n  font-family: Menlo, Monaco, Consolas, "Courier New", monospace, sans-serif;\n  font-size: 14px;\n  padding: 2px 6px;\n  background-color: #f9f9f9 !important;\n  color: #c9302c !important;\n  border: 1px solid #e0e0e0;\n}\n\n/* --- \u4EE3\u7801\u5757 --- */\n.note-to-mp pre {\n  margin: 40px 0;\n  padding: 30px;\n  background-color: #f9f9f9 !important;\n  border-left: 5px solid #c9302c;\n  overflow-x: auto;\n  line-height: 1.6 !important;\n}\n\n/* --- \u5206\u9694\u7EBF --- */\n.note-to-mp hr {\n  margin: 70px auto;\n  border: none;\n  height: 1px;\n  background-color: #c9302c !important;\n  max-width: 100px;\n}\n\n/* --- \u56FE\u7247 --- */\n.note-to-mp img {\n  max-width: 100%;\n  max-height: 600px !important;\n  height: auto;\n  display: block;\n  margin: 20px auto;\n  border: 1px solid #e0e0e0;\n}\n\n/* --- \u8868\u683C --- */\n.note-to-mp table {\n  width: 100%;\n  margin: 40px 0;\n  border-collapse: collapse;\n  font-size: 15px;\n}\n\n.note-to-mp th {\n  background-color: #f9f9f9 !important;\n  padding: 15px;\n  text-align: left;\n  border-top: 2px solid #c9302c;\n  border-bottom: 2px solid #c9302c;\n  font-weight: 500;\n  color: #2c2c2c !important;\n  text-transform: uppercase;\n  letter-spacing: 0.05em;\n  font-size: 14px;\n}\n\n.note-to-mp td {\n  padding: 15px;\n  border-bottom: 1px solid #e0e0e0;\n  color: #2c2c2c !important;\n  font-weight: 300;\n}\n\n.note-to-mp tr {\n  border-bottom: 1px solid #e0e0e0;\n}\n\n/* WeChatPB \u89C6\u89C9\u6821\u51C6\uFF1A\u589E\u52A0\u62A5\u520A\u6B63\u6587\u58A8\u8272\u4E0E\u5B57\u91CD */\n.note-to-mp p,\n.note-to-mp li,\n.note-to-mp td { color: #262626 !important; font-weight: 400; }\n\n```\n';
 
 // themes/浮雕卡片-靛蓝.md
-var __default5 = '```CSS\n/* \u5168\u5C40\u5C5E\u6027 */\n.note-to-mp {\n  max-width: 700px;\n  margin: 0 auto;\n  padding: 50px 40px;\n  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", Arial, sans-serif;\n  font-size: 16px;\n  line-height: 1.75 !important;\n  color: #475569 !important;\n  background-color: #f8fafc !important;\n  border-radius: 4px;\n  text-align: left !important;\n  word-wrap: break-word;\n  word-break: break-word;\n}\n\n/* --- \u6807\u9898\u90E8\u5206 --- */\n.note-to-mp h1 {\n  font-size: 18px;\n  font-weight: 400;\n  color: #ffffff !important;\n  line-height: 24px !important;\n  margin: 28px 0 18px;\n  padding: 10px 24px 10px 10px;\n  letter-spacing: 0.5px;\n  background: linear-gradient(135deg, #4338ca 0%, #6366f1 50%, #818cf8 100%);\n  border-radius: 10px;\n  border: 1px solid rgba(255, 255, 255, 0.2);\n  box-shadow:\n    0 1px 0 0 rgba(255, 255, 255, 0.4) inset,\n    0 8px 16px rgba(67, 56, 202, 0.3),\n    0 4px 8px rgba(67, 56, 202, 0.2),\n    0 2px 4px rgba(67, 56, 202, 0.1);\n  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);\n}\n\n.note-to-mp h2 {\n  font-size: 18px;\n  font-weight: 400;\n  color: #4338ca !important;\n  line-height: 24px !important;\n  margin: 28px 0 18px;\n  padding: 10px 20px 10px 10px;\n  background: linear-gradient(135deg, #eef2ff 0%, #e0e7ff 100%);\n  border-radius: 8px;\n  border-left: 4px solid #818cf8;\n  box-shadow:\n    2px 2px 6px rgba(203, 213, 225, 0.4),\n    -1px -1px 3px rgba(255, 255, 255, 0.8),\n    inset 0 1px 0 rgba(255, 255, 255, 0.6);\n  text-shadow: 0 1px 1px rgba(255, 255, 255, 0.8);\n}\n\n.note-to-mp h3 {\n  font-size: 18px;\n  font-weight: 400;\n  color: #475569 !important;\n  line-height: 24px !important;\n  margin: 28px 0 18px;\n  padding: 10px 16px 10px 10px;\n  background: linear-gradient(90deg, #f1f5f9 0%, #f8fafc 100%);\n  border-radius: 6px;\n  border-left: 3px solid #a5b4fc;\n  box-shadow:\n    1px 1px 4px rgba(203, 213, 225, 0.3),\n    inset 0 1px 0 rgba(255, 255, 255, 0.5);\n  text-shadow: 0 1px 1px rgba(255, 255, 255, 0.6);\n}\n.note-to-mp h4 {\n  font-size: 18px;\n  font-weight: 400;\n  color: #1d1d1f !important;\n  line-height: 24px !important;\n  margin: 28px 0 18px;\n}\n\n.note-to-mp h5 {\n  font-size: 18px;\n  font-weight: 400;\n  color: #1d1d1f !important;\n  line-height: 24px !important;\n  margin: 28px 0 18px;\n}\n\n.note-to-mp h6 {\n  font-size: 18px;\n  font-weight: 400;\n  color: #1d1d1f !important;\n  line-height: 24px !important;\n  margin: 28px 0 18px;\n}\n\n\n.note-to-mp h4, .note-to-mp h5, .note-to-mp h6 {\n  font-size: 18px;\n  font-weight: 400;\n  color: #475569 !important;\n  line-height: 24px !important;\n  margin: 28px 0 18px;\n}\n\n/* \u6BB5\u843D */\n.note-to-mp p {\n  margin: 18px 0 !important;\n  line-height: 1.75 !important;\n  color: #475569 !important;\n  font-weight: 300;\n  text-align: left;\n}\n\n/* \u52A0\u7C97 */\n.note-to-mp strong {\n  font-weight: 500;\n  color: #4338ca !important;\n}\n\n/* \u659C\u4F53 */\n.note-to-mp em {\n  font-style: italic;\n  color: #6366f1 !important;\n  font-weight: 300;\n}\n\n/* \u4E0B\u5212\u7EBF */\n.note-to-mp u {\n  text-decoration: none;\n  color: #4338ca !important;\n  border-bottom: 1px solid #818cf8;\n  padding-bottom: 1px;\n}\n\n/* \u94FE\u63A5 */\n.note-to-mp a {\n  color: #4338ca !important;\n  text-decoration: none;\n  border-bottom: 1px solid #a5b4fc;\n  font-weight: 400;\n  word-break: break-all;\n}\n\n/* --- \u5217\u8868\u90E8\u5206 --- */\n.note-to-mp ul, .note-to-mp ol {\n  margin: 18px 0;\n  padding-left: 22px;\n}\n.note-to-mp ul { list-style-type: disc; }\n.note-to-mp ol { list-style-type: decimal; }\n\n.note-to-mp li {\n  margin: 10px 0;\n  line-height: 1.75 !important;\n  color: #475569 !important;\n  font-weight: 300;\n}\n.note-to-mp li::marker {\n  color: #818cf8;\n}\n\n/* --- \u5F15\u7528\u90E8\u5206 --- */\n.note-to-mp blockquote {\n  margin: 30px 0;\n  padding: 24px;\n  background-color: #f8fafc !important;\n  border: none;\n  border-radius: 12px;\n  box-shadow: inset 3px 3px 8px rgba(203, 213, 225, 0.5), inset -3px -3px 8px rgba(255, 255, 255, 1);\n  color: #334155 !important;\n  font-size: 15px;\n  line-height: 1.75 !important;\n  font-weight: 400;\n  font-style: normal;\n}\n\n/* --- \u4EE3\u7801\u5757\u90E8\u5206 --- */\n\n/* \u884C\u5185\u4EE3\u7801 */\n.note-to-mp code {\n  font-family: Menlo, Monaco, Consolas, "Courier New", monospace, sans-serif;\n  font-size: 14px;\n  padding: 2px 6px;\n  background-color: #eef2ff !important;\n  color: #4338ca !important;\n  border-radius: 4px;\n  font-weight: 400;\n}\n\n/* \u4EE3\u7801\u5757\u5916\u5C42\u5BB9\u5668 */\n.note-to-mp .code-section {\n  margin: 24px 0;\n  padding: 45px 20px 20px;\n  background-color: #1e1b4b !important;\n  border-radius: 12px;\n  overflow-x: auto;\n  background-image:\n    radial-gradient(circle, #ff5f56 6px, transparent 7px),\n    radial-gradient(circle, #ffbd2e 6px, transparent 7px),\n    radial-gradient(circle, #27c93f 6px, transparent 7px),\n    linear-gradient(#312e81, #312e81);\n  background-size: 14px 14px, 14px 14px, 14px 14px, 100% 36px;\n  background-position: 15px 12px, 35px 12px, 55px 12px, 0 0;\n  background-repeat: no-repeat;\n  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15);\n}\n\n.note-to-mp .code-section ul { display: none; }\n\n.note-to-mp .code-section pre {\n  margin: 0;\n  padding: 0;\n  background: transparent !important;\n  border: none;\n  line-height: 1.6 !important;\n  white-space: pre-wrap !important;\n  word-wrap: break-word !important;\n  word-break: break-all !important;\n}\n\n.note-to-mp .code-section code,\n.note-to-mp .code-section span {\n  background-color: transparent !important;\n  color: #a5b4fc !important;\n  padding: 0;\n  font-family: Menlo, Monaco, Consolas, "Courier New", monospace, sans-serif;\n  font-size: 14px;\n  font-weight: 400;\n}\n\n/* \u56FE\u7247 */\n.note-to-mp img {\n  max-width: 100%;\n  height: auto;\n  display: block;\n  margin: 24px auto;\n  border-radius: 8px;\n  box-shadow: 4px 4px 12px rgba(203, 213, 225, 0.4), -2px -2px 8px rgba(255, 255, 255, 0.8);\n}\n\n/* \u8868\u683C */\n.note-to-mp table {\n  width: 100%;\n  margin: 24px 0;\n  border-collapse: collapse;\n  font-size: 15px;\n}\n.note-to-mp th {\n  background-color: #eef2ff !important;\n  padding: 14px 18px;\n  text-align: left;\n  border: none;\n  font-weight: 500;\n  color: #4338ca !important;\n  border-bottom: 2px solid #4338ca;\n}\n.note-to-mp td {\n  padding: 14px 18px;\n  border: none;\n  border-bottom: 1px solid #e2e8f0;\n  color: #475569 !important;\n  font-weight: 300;\n}\n```\n';
+var __default4 = '```CSS\n/* \u5168\u5C40\u5C5E\u6027 */\n.note-to-mp {\n  max-width: 700px;\n  margin: 0 auto;\n  padding: 50px 40px;\n  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", Arial, sans-serif;\n  font-size: 16px;\n  line-height: 1.75 !important;\n  color: #475569 !important;\n  background-color: #f8fafc !important;\n  border-radius: 4px;\n  text-align: left !important;\n  word-wrap: break-word;\n  word-break: break-word;\n}\n\n/* --- \u6807\u9898\u90E8\u5206 --- */\n.note-to-mp h1 {\n  font-size: 18px;\n  font-weight: 400;\n  color: #ffffff !important;\n  line-height: 24px !important;\n  margin: 28px 0 18px;\n  padding: 10px 24px 10px 10px;\n  letter-spacing: 0.5px;\n  background: linear-gradient(135deg, #4338ca 0%, #6366f1 50%, #818cf8 100%);\n  border-radius: 10px;\n  border: 1px solid rgba(255, 255, 255, 0.2);\n  box-shadow:\n    0 1px 0 0 rgba(255, 255, 255, 0.4) inset,\n    0 8px 16px rgba(67, 56, 202, 0.3),\n    0 4px 8px rgba(67, 56, 202, 0.2),\n    0 2px 4px rgba(67, 56, 202, 0.1);\n  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);\n}\n\n.note-to-mp h2 {\n  font-size: 18px;\n  font-weight: 400;\n  color: #4338ca !important;\n  line-height: 24px !important;\n  margin: 28px 0 18px;\n  padding: 10px 20px 10px 10px;\n  background: linear-gradient(135deg, #eef2ff 0%, #e0e7ff 100%);\n  border-radius: 8px;\n  border-left: 4px solid #818cf8;\n  box-shadow:\n    2px 2px 6px rgba(203, 213, 225, 0.4),\n    -1px -1px 3px rgba(255, 255, 255, 0.8),\n    inset 0 1px 0 rgba(255, 255, 255, 0.6);\n  text-shadow: 0 1px 1px rgba(255, 255, 255, 0.8);\n}\n\n.note-to-mp h3 {\n  font-size: 18px;\n  font-weight: 400;\n  color: #475569 !important;\n  line-height: 24px !important;\n  margin: 28px 0 18px;\n  padding: 10px 16px 10px 10px;\n  background: linear-gradient(90deg, #f1f5f9 0%, #f8fafc 100%);\n  border-radius: 6px;\n  border-left: 3px solid #a5b4fc;\n  box-shadow:\n    1px 1px 4px rgba(203, 213, 225, 0.3),\n    inset 0 1px 0 rgba(255, 255, 255, 0.5);\n  text-shadow: 0 1px 1px rgba(255, 255, 255, 0.6);\n}\n.note-to-mp h4 {\n  font-size: 18px;\n  font-weight: 400;\n  color: #1d1d1f !important;\n  line-height: 24px !important;\n  margin: 28px 0 18px;\n}\n\n.note-to-mp h5 {\n  font-size: 18px;\n  font-weight: 400;\n  color: #1d1d1f !important;\n  line-height: 24px !important;\n  margin: 28px 0 18px;\n}\n\n.note-to-mp h6 {\n  font-size: 18px;\n  font-weight: 400;\n  color: #1d1d1f !important;\n  line-height: 24px !important;\n  margin: 28px 0 18px;\n}\n\n\n.note-to-mp h4, .note-to-mp h5, .note-to-mp h6 {\n  font-size: 18px;\n  font-weight: 400;\n  color: #475569 !important;\n  line-height: 24px !important;\n  margin: 28px 0 18px;\n}\n\n/* \u6BB5\u843D */\n.note-to-mp p {\n  margin: 18px 0 !important;\n  line-height: 1.75 !important;\n  color: #475569 !important;\n  font-weight: 300;\n  text-align: left;\n}\n\n/* \u52A0\u7C97 */\n.note-to-mp strong {\n  font-weight: 500;\n  color: #4338ca !important;\n}\n\n/* \u659C\u4F53 */\n.note-to-mp em {\n  font-style: italic;\n  color: #6366f1 !important;\n  font-weight: 300;\n}\n\n/* \u4E0B\u5212\u7EBF */\n.note-to-mp u {\n  text-decoration: none;\n  color: #4338ca !important;\n  border-bottom: 1px solid #818cf8;\n  padding-bottom: 1px;\n}\n\n/* \u94FE\u63A5 */\n.note-to-mp a {\n  color: #4338ca !important;\n  text-decoration: none;\n  border-bottom: 1px solid #a5b4fc;\n  font-weight: 400;\n  word-break: break-all;\n}\n\n/* --- \u5217\u8868\u90E8\u5206 --- */\n.note-to-mp ul, .note-to-mp ol {\n  margin: 18px 0;\n  padding-left: 22px;\n}\n.note-to-mp ul { list-style-type: disc; }\n.note-to-mp ol { list-style-type: decimal; }\n\n.note-to-mp li {\n  margin: 10px 0;\n  line-height: 1.75 !important;\n  color: #475569 !important;\n  font-weight: 300;\n}\n.note-to-mp li::marker {\n  color: #818cf8;\n}\n\n/* --- \u5F15\u7528\u90E8\u5206 --- */\n.note-to-mp blockquote {\n  margin: 30px 0;\n  padding: 24px;\n  background-color: #f8fafc !important;\n  border: none;\n  border-radius: 12px;\n  box-shadow: inset 3px 3px 8px rgba(203, 213, 225, 0.5), inset -3px -3px 8px rgba(255, 255, 255, 1);\n  color: #334155 !important;\n  font-size: 15px;\n  line-height: 1.75 !important;\n  font-weight: 400;\n  font-style: normal;\n}\n\n/* --- \u4EE3\u7801\u5757\u90E8\u5206 --- */\n\n/* \u884C\u5185\u4EE3\u7801 */\n.note-to-mp code {\n  font-family: Menlo, Monaco, Consolas, "Courier New", monospace, sans-serif;\n  font-size: 14px;\n  padding: 2px 6px;\n  background-color: #eef2ff !important;\n  color: #4338ca !important;\n  border-radius: 4px;\n  font-weight: 400;\n}\n\n/* \u4EE3\u7801\u5757\u5916\u5C42\u5BB9\u5668 */\n.note-to-mp .code-section {\n  margin: 24px 0;\n  padding: 45px 20px 20px;\n  background-color: #1e1b4b !important;\n  border-radius: 12px;\n  overflow-x: auto;\n  background-image:\n    radial-gradient(circle, #ff5f56 6px, transparent 7px),\n    radial-gradient(circle, #ffbd2e 6px, transparent 7px),\n    radial-gradient(circle, #27c93f 6px, transparent 7px),\n    linear-gradient(#312e81, #312e81);\n  background-size: 14px 14px, 14px 14px, 14px 14px, 100% 36px;\n  background-position: 15px 12px, 35px 12px, 55px 12px, 0 0;\n  background-repeat: no-repeat;\n  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15);\n}\n\n.note-to-mp .code-section ul { display: none; }\n\n.note-to-mp .code-section pre {\n  margin: 0;\n  padding: 0;\n  background: transparent !important;\n  border: none;\n  line-height: 1.6 !important;\n  white-space: pre-wrap !important;\n  word-wrap: break-word !important;\n  word-break: break-all !important;\n}\n\n.note-to-mp .code-section code,\n.note-to-mp .code-section span {\n  background-color: transparent !important;\n  color: #a5b4fc !important;\n  padding: 0;\n  font-family: Menlo, Monaco, Consolas, "Courier New", monospace, sans-serif;\n  font-size: 14px;\n  font-weight: 400;\n}\n\n/* \u56FE\u7247 */\n.note-to-mp img {\n  max-width: 100%;\n  height: auto;\n  display: block;\n  margin: 24px auto;\n  border-radius: 8px;\n  box-shadow: 4px 4px 12px rgba(203, 213, 225, 0.4), -2px -2px 8px rgba(255, 255, 255, 0.8);\n}\n\n/* \u8868\u683C */\n.note-to-mp table {\n  width: 100%;\n  margin: 24px 0;\n  border-collapse: collapse;\n  font-size: 15px;\n}\n.note-to-mp th {\n  background-color: #eef2ff !important;\n  padding: 14px 18px;\n  text-align: left;\n  border: none;\n  font-weight: 500;\n  color: #4338ca !important;\n  border-bottom: 2px solid #4338ca;\n}\n.note-to-mp td {\n  padding: 14px 18px;\n  border: none;\n  border-bottom: 1px solid #e2e8f0;\n  color: #475569 !important;\n  font-weight: 300;\n}\n\n/* WeChatPB \u89C6\u89C9\u6821\u51C6\uFF1A\u51CF\u8F7B\u6D6E\u96D5\u9634\u5F71\uFF0C\u589E\u5F3A\u6B63\u6587\u6E05\u6670\u5EA6 */\n.note-to-mp p,\n.note-to-mp li,\n.note-to-mp td { color: #334155 !important; font-weight: 400; }\n.note-to-mp h1 { box-shadow: 0 6px 16px rgba(67, 56, 202, 0.18); }\n.note-to-mp h2,\n.note-to-mp h3 { box-shadow: 0 2px 8px rgba(67, 56, 202, 0.08); }\n.note-to-mp blockquote {\n  border: 1px solid #e2e8f0;\n  box-shadow: none;\n}\n```\n';
 
 // themes/清水极简-黑.md
-var __default6 = '\n```CSS\n/* \u5168\u5C40\u5C5E\u6027 */\n.note-to-mp {\n  max-width: 600px;\n  margin: 0 auto;\n  padding: 60px 24px 80px 24px;\n  font-family: "Helvetica Neue", Arial, sans-serif;\n  font-size: 16px;\n  line-height: 2 !important;\n  color: #4a4a4a !important;\n  background-color: #fff !important;\n  word-wrap: break-word;\n  word-break: break-word;\n}\n\n/* --- \u6807\u9898\u90E8\u5206 --- */\n.note-to-mp h1 {\n  font-size: 18px;\n  font-weight: 300;\n  color: #1a1a1a !important;\n  line-height: 24px !important;\n  margin: 60px 0 50px;\n  padding-bottom: 30px;\n  border-bottom: 1px solid #d0d0d0;\n  letter-spacing: 0.2em;\n  text-transform: uppercase;\n}\n\n.note-to-mp h2 {\n  font-size: 18px;\n  font-weight: 400;\n  color: #2a2a2a !important;\n  line-height: 24px !important;\n  margin: 70px 0 40px;\n  padding: 20px 0;\n  border-top: 1px solid #e0e0e0;\n  border-bottom: 1px solid #e0e0e0;\n  letter-spacing: 0.15em;\n  background-color: #fafafa !important;\n}\n\n.note-to-mp h3 {\n  font-size: 18px;\n  font-weight: 400;\n  color: #3a3a3a !important;\n  line-height: 24px !important;\n  margin: 50px 0 30px;\n  letter-spacing: 0.1em;\n}\n\n.note-to-mp h4 {\n  font-size: 18px;\n  font-weight: 500;\n  color: #4a4a4a !important;\n  line-height: 24px !important;\n  margin: 50px 0 25px;\n  letter-spacing: 0.05em;\n}\n\n.note-to-mp h5 {\n  font-size: 18px;\n  font-weight: 500;\n  color: #5a5a5a !important;\n  line-height: 24px !important;\n  margin: 40px 0 20px;\n}\n\n.note-to-mp h6 {\n  font-size: 18px;\n  font-weight: 500;\n  color: #6a6a6a !important;\n  line-height: 24px !important;\n  margin: 30px 0 15px;\n}\n\n/* \u6BB5\u843D */\n.note-to-mp p {\n  margin: 35px 0 !important;\n  line-height: 2 !important;\n  color: #4a4a4a !important;\n  text-align: justify;\n}\n\n/* \u52A0\u7C97 */\n.note-to-mp strong {\n  font-weight: 600;\n  color: #1a1a1a !important;\n  letter-spacing: 0.05em;\n}\n\n/* \u659C\u4F53 */\n.note-to-mp em {\n  font-style: normal;\n  color: #6a6a6a !important;\n  letter-spacing: 0.05em;\n  font-weight: 300;\n}\n\n/* \u4E0B\u5212\u7EBF */\n.note-to-mp u {\n  text-decoration: none;\n  border-bottom: 1px solid #b0b0b0;\n  padding-bottom: 1px;\n}\n\n/* \u94FE\u63A5 */\n.note-to-mp a {\n  color: #4a4a4a !important;\n  text-decoration: none;\n  border-bottom: 1px solid #b0b0b0;\n  padding-bottom: 1px;\n  word-break: break-all;\n}\n\n/* --- \u5217\u8868 --- */\n.note-to-mp ul, .note-to-mp ol {\n  margin: 50px 0;\n  padding-left: 32px;\n}\n.note-to-mp ul { list-style-type: circle; }\n.note-to-mp ol { list-style-type: decimal; }\n\n.note-to-mp li {\n  margin: 25px 0;\n  line-height: 2 !important;\n  color: #4a4a4a !important;\n  padding-left: 30px;\n  position: relative;\n}\n\n/* --- \u5F15\u7528 --- */\n.note-to-mp blockquote {\n  margin: 60px 0;\n  padding: 35px;\n  background-color: #ffffff !important;\n  border: 1px solid #d0d0d0;\n  color: #3a3a3a !important;\n  font-size: 15px;\n  line-height: 2.2 !important;\n  letter-spacing: 0.05em;\n  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);\n  font-style: normal;\n  max-width: 100%;\n}\n\n/* --- \u4EE3\u7801\u5757\u90E8\u5206 --- */\n\n/* 1. \u884C\u5185\u4EE3\u7801 */\n.note-to-mp code {\n  font-family: "Courier New", Courier, monospace, sans-serif;\n  font-size: 14px;\n  padding: 3px 8px;\n  background-color: #f0f0f0 !important;\n  color: #4a4a4a !important;\n  border: 1px solid #d0d0d0;\n}\n\n/* 2. \u4EE3\u7801\u5757\u5916\u5C42\u5BB9\u5668 */\n.note-to-mp .code-section {\n  margin: 60px 0;\n  padding: 45px 20px 20px;\n  background-color: #2a2a2a !important;\n  border-radius: 0;\n  overflow-x: auto;\n\n  background-image:\n    radial-gradient(circle, #ff5f56 6px, transparent 7px),\n    radial-gradient(circle, #ffbd2e 6px, transparent 7px),\n    radial-gradient(circle, #27c93f 6px, transparent 7px),\n    linear-gradient(#222, #222);\n  background-size: 14px 14px, 14px 14px, 14px 14px, 100% 36px;\n  background-position: 15px 12px, 35px 12px, 55px 12px, 0 0;\n  background-repeat: no-repeat;\n\n  box-shadow: inset 0 0 50px rgba(0, 0, 0, 0.5);\n  border: none;\n}\n\n.note-to-mp .code-section ul { display: none; }\n\n/* 3. pre \u6807\u7B7E\u6837\u5F0F\u91CD\u7F6E */\n.note-to-mp .code-section pre {\n  margin: 0;\n  padding: 0;\n  background: transparent !important;\n  border: none;\n  line-height: 1.8 !important;\n  white-space: pre-wrap !important;\n  word-wrap: break-word !important;\n  word-break: break-all !important;\n}\n\n/* 4. \u4EE3\u7801\u5757\u5185\u90E8\u6587\u5B57 */\n.note-to-mp .code-section code,\n.note-to-mp .code-section span {\n  background-color: transparent !important;\n  color: #f0f0f0 !important;\n  padding: 0;\n  border-radius: 0;\n  border: none;\n  display: inline;\n  font-family: "Courier New", Courier, monospace, sans-serif;\n  font-size: 14px;\n}\n\n/* \u5206\u5272\u7EBF */\n.note-to-mp hr {\n  margin: 60px auto;\n  border: none;\n  width: 60px;\n  height: 1px;\n  background-color: #c0c0c0 !important;\n}\n\n/* \u56FE\u7247 */\n.note-to-mp img {\n  max-width: 100%;\n  max-height: 500px !important;\n  height: auto;\n  display: block;\n  margin: 50px auto;\n  filter: grayscale(20%);\n  opacity: 0.95;\n}\n\n/* \u8868\u683C */\n.note-to-mp table { width: 100%; margin: 60px 0; border-collapse: collapse; font-size: 14px; border: 1px solid #d0d0d0; }\n.note-to-mp th { background-color: #f8f8f8 !important; padding: 20px; text-align: left; border: 1px solid #d0d0d0; font-weight: 400; color: #2a2a2a !important; letter-spacing: 0.1em; text-transform: uppercase; }\n.note-to-mp td { padding: 20px; border: 1px solid #e0e0e0; color: #4a4a4a !important; background-color: #fff !important; }\n.note-to-mp tr { border: 1px solid #e0e0e0; }\n```\n';
+var __default5 = '\n```CSS\n/* \u5168\u5C40\u5C5E\u6027 */\n.note-to-mp {\n  max-width: 600px;\n  margin: 0 auto;\n  padding: 60px 24px 80px 24px;\n  font-family: "Helvetica Neue", Arial, sans-serif;\n  font-size: 16px;\n  line-height: 2 !important;\n  color: #4a4a4a !important;\n  background-color: #fff !important;\n  word-wrap: break-word;\n  word-break: break-word;\n}\n\n/* --- \u6807\u9898\u90E8\u5206 --- */\n.note-to-mp h1 {\n  font-size: 18px;\n  font-weight: 300;\n  color: #1a1a1a !important;\n  line-height: 24px !important;\n  margin: 60px 0 50px;\n  padding-bottom: 30px;\n  border-bottom: 1px solid #d0d0d0;\n  letter-spacing: 0.2em;\n  text-transform: uppercase;\n}\n\n.note-to-mp h2 {\n  font-size: 18px;\n  font-weight: 400;\n  color: #2a2a2a !important;\n  line-height: 24px !important;\n  margin: 70px 0 40px;\n  padding: 20px 0;\n  border-top: 1px solid #e0e0e0;\n  border-bottom: 1px solid #e0e0e0;\n  letter-spacing: 0.15em;\n  background-color: #fafafa !important;\n}\n\n.note-to-mp h3 {\n  font-size: 18px;\n  font-weight: 400;\n  color: #3a3a3a !important;\n  line-height: 24px !important;\n  margin: 50px 0 30px;\n  letter-spacing: 0.1em;\n}\n\n.note-to-mp h4 {\n  font-size: 18px;\n  font-weight: 500;\n  color: #4a4a4a !important;\n  line-height: 24px !important;\n  margin: 50px 0 25px;\n  letter-spacing: 0.05em;\n}\n\n.note-to-mp h5 {\n  font-size: 18px;\n  font-weight: 500;\n  color: #5a5a5a !important;\n  line-height: 24px !important;\n  margin: 40px 0 20px;\n}\n\n.note-to-mp h6 {\n  font-size: 18px;\n  font-weight: 500;\n  color: #6a6a6a !important;\n  line-height: 24px !important;\n  margin: 30px 0 15px;\n}\n\n/* \u6BB5\u843D */\n.note-to-mp p {\n  margin: 35px 0 !important;\n  line-height: 2 !important;\n  color: #4a4a4a !important;\n  text-align: justify;\n}\n\n/* \u52A0\u7C97 */\n.note-to-mp strong {\n  font-weight: 600;\n  color: #1a1a1a !important;\n  letter-spacing: 0.05em;\n}\n\n/* \u659C\u4F53 */\n.note-to-mp em {\n  font-style: normal;\n  color: #6a6a6a !important;\n  letter-spacing: 0.05em;\n  font-weight: 300;\n}\n\n/* \u4E0B\u5212\u7EBF */\n.note-to-mp u {\n  text-decoration: none;\n  border-bottom: 1px solid #b0b0b0;\n  padding-bottom: 1px;\n}\n\n/* \u94FE\u63A5 */\n.note-to-mp a {\n  color: #4a4a4a !important;\n  text-decoration: none;\n  border-bottom: 1px solid #b0b0b0;\n  padding-bottom: 1px;\n  word-break: break-all;\n}\n\n/* --- \u5217\u8868 --- */\n.note-to-mp ul, .note-to-mp ol {\n  margin: 50px 0;\n  padding-left: 32px;\n}\n.note-to-mp ul { list-style-type: circle; }\n.note-to-mp ol { list-style-type: decimal; }\n\n.note-to-mp li {\n  margin: 25px 0;\n  line-height: 2 !important;\n  color: #4a4a4a !important;\n  padding-left: 30px;\n  position: relative;\n}\n\n/* --- \u5F15\u7528 --- */\n.note-to-mp blockquote {\n  margin: 60px 0;\n  padding: 35px;\n  background-color: #ffffff !important;\n  border: 1px solid #d0d0d0;\n  color: #3a3a3a !important;\n  font-size: 15px;\n  line-height: 2.2 !important;\n  letter-spacing: 0.05em;\n  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);\n  font-style: normal;\n  max-width: 100%;\n}\n\n/* --- \u4EE3\u7801\u5757\u90E8\u5206 --- */\n\n/* 1. \u884C\u5185\u4EE3\u7801 */\n.note-to-mp code {\n  font-family: "Courier New", Courier, monospace, sans-serif;\n  font-size: 14px;\n  padding: 3px 8px;\n  background-color: #f0f0f0 !important;\n  color: #4a4a4a !important;\n  border: 1px solid #d0d0d0;\n}\n\n/* 2. \u4EE3\u7801\u5757\u5916\u5C42\u5BB9\u5668 */\n.note-to-mp .code-section {\n  margin: 60px 0;\n  padding: 45px 20px 20px;\n  background-color: #2a2a2a !important;\n  border-radius: 0;\n  overflow-x: auto;\n\n  background-image:\n    radial-gradient(circle, #ff5f56 6px, transparent 7px),\n    radial-gradient(circle, #ffbd2e 6px, transparent 7px),\n    radial-gradient(circle, #27c93f 6px, transparent 7px),\n    linear-gradient(#222, #222);\n  background-size: 14px 14px, 14px 14px, 14px 14px, 100% 36px;\n  background-position: 15px 12px, 35px 12px, 55px 12px, 0 0;\n  background-repeat: no-repeat;\n\n  box-shadow: inset 0 0 50px rgba(0, 0, 0, 0.5);\n  border: none;\n}\n\n.note-to-mp .code-section ul { display: none; }\n\n/* 3. pre \u6807\u7B7E\u6837\u5F0F\u91CD\u7F6E */\n.note-to-mp .code-section pre {\n  margin: 0;\n  padding: 0;\n  background: transparent !important;\n  border: none;\n  line-height: 1.8 !important;\n  white-space: pre-wrap !important;\n  word-wrap: break-word !important;\n  word-break: break-all !important;\n}\n\n/* 4. \u4EE3\u7801\u5757\u5185\u90E8\u6587\u5B57 */\n.note-to-mp .code-section code,\n.note-to-mp .code-section span {\n  background-color: transparent !important;\n  color: #f0f0f0 !important;\n  padding: 0;\n  border-radius: 0;\n  border: none;\n  display: inline;\n  font-family: "Courier New", Courier, monospace, sans-serif;\n  font-size: 14px;\n}\n\n/* \u5206\u5272\u7EBF */\n.note-to-mp hr {\n  margin: 60px auto;\n  border: none;\n  width: 60px;\n  height: 1px;\n  background-color: #c0c0c0 !important;\n}\n\n/* \u56FE\u7247 */\n.note-to-mp img {\n  max-width: 100%;\n  max-height: 500px !important;\n  height: auto;\n  display: block;\n  margin: 50px auto;\n  filter: grayscale(20%);\n  opacity: 0.95;\n}\n\n/* \u8868\u683C */\n.note-to-mp table { width: 100%; margin: 60px 0; border-collapse: collapse; font-size: 14px; border: 1px solid #d0d0d0; }\n.note-to-mp th { background-color: #f8f8f8 !important; padding: 20px; text-align: left; border: 1px solid #d0d0d0; font-weight: 400; color: #2a2a2a !important; letter-spacing: 0.1em; text-transform: uppercase; }\n.note-to-mp td { padding: 20px; border: 1px solid #e0e0e0; color: #4a4a4a !important; background-color: #fff !important; }\n.note-to-mp tr { border: 1px solid #e0e0e0; }\n```\n';
 
 // themes/渐隐底线-粉紫.md
-var __default7 = '```CSS\n/* \u5168\u5C40\u5C5E\u6027 */\n.note-to-mp {\n  max-width: 700px;\n  margin: 0 auto;\n  padding: 40px;\n  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", Arial, sans-serif;\n  font-size: 16px;\n  line-height: 1.8 !important;\n  color: #1f2937 !important;\n  background-color: #ffffff !important;\n  text-align: left !important;\n  word-wrap: break-word;\n  word-break: break-word;\n}\n\n/* --- \u6807\u9898\u90E8\u5206 --- */\n.note-to-mp h1 {\n  font-size: 18px;\n  font-weight: 400;\n  color: #111111 !important;\n  line-height: 24px !important;\n  margin: 28px 0 3px;\n  padding-bottom: 15px;\n  background-image: linear-gradient(to right, #db2777, #9333ea);\n  background-size: 60px 4px;\n  background-position: left bottom;\n  background-repeat: no-repeat;\n}\n\n.note-to-mp h2 {\n  font-size: 18px;\n  font-weight: 400;\n  color: #374151 !important;\n  line-height: 24px !important;\n  margin: 28px 0 8px;\n  padding-bottom: 10px;\n  background-image: linear-gradient(to right, #db2777, #db2777), linear-gradient(to right, #f3f4f6, #f3f4f6);\n  background-size: 40px 2px, 100% 1px;\n  background-position: left bottom, left bottom;\n  background-repeat: no-repeat;\n}\n\n.note-to-mp h3 {\n  font-size: 18px;\n  font-weight: 400;\n  color: #4b5563 !important;\n  line-height: 24px !important;\n  margin: 28px 0 10px;\n  padding-bottom: 8px;\n  background-image: linear-gradient(to right, #db2777, #db2777);\n  background-size: 30px 2px;\n  background-position: left bottom;\n  background-repeat: no-repeat;\n}\n.note-to-mp h4 {\n  font-size: 18px;\n  font-weight: 400;\n  color: #1d1d1f !important;\n  line-height: 24px !important;\n  margin: 28px 0 12px;\n}\n\n.note-to-mp h5 {\n  font-size: 18px;\n  font-weight: 400;\n  color: #1d1d1f !important;\n  line-height: 24px !important;\n  margin: 28px 0 12px;\n}\n\n.note-to-mp h6 {\n  font-size: 18px;\n  font-weight: 400;\n  color: #1d1d1f !important;\n  line-height: 24px !important;\n  margin: 28px 0 12px;\n}\n\n\n.note-to-mp h4, .note-to-mp h5, .note-to-mp h6 {\n  font-size: 18px;\n  font-weight: 400;\n  color: #6b7280 !important;\n  line-height: 24px !important;\n  margin: 28px 0 12px;\n  padding-bottom: 6px;\n  background-image: linear-gradient(to right, #db2777, #db2777);\n  background-size: 20px 1.5px;\n  background-position: left bottom;\n  background-repeat: no-repeat;\n}\n\n/* \u6BB5\u843D */\n.note-to-mp p {\n  margin: 18px 0 !important;\n  line-height: 1.8 !important;\n  color: #1f2937 !important;\n  font-weight: 300;\n  text-align: left;\n}\n\n/* \u52A0\u7C97 */\n.note-to-mp strong {\n  font-weight: 500;\n  color: #db2777 !important;\n}\n\n/* \u659C\u4F53 */\n.note-to-mp em {\n  font-style: italic;\n  color: #9333ea !important;\n}\n\n/* \u4E0B\u5212\u7EBF */\n.note-to-mp u {\n  text-decoration: none;\n  color: #db2777 !important;\n  background-image: linear-gradient(to right, #db2777, #9333ea);\n  background-size: 100% 1px;\n  background-position: left bottom;\n  background-repeat: no-repeat;\n  padding-bottom: 2px;\n}\n\n/* \u94FE\u63A5 */\n.note-to-mp a {\n  color: #db2777 !important;\n  text-decoration: none;\n  background-image: linear-gradient(#db2777, #db2777);\n  background-size: 100% 1px;\n  background-position: 0 100%;\n  background-repeat: no-repeat;\n  font-weight: 400;\n  word-break: break-all;\n}\n\n/* --- \u5217\u8868\u90E8\u5206 --- */\n.note-to-mp ul, .note-to-mp ol {\n  margin: 18px 0;\n  padding-left: 22px;\n}\n.note-to-mp ul { list-style-type: disc; }\n.note-to-mp ol { list-style-type: decimal; }\n\n.note-to-mp li {\n  margin: 10px 0;\n  line-height: 1.8 !important;\n  color: #1f2937 !important;\n  font-weight: 300;\n}\n.note-to-mp li::marker {\n  color: #db2777;\n}\n\n/* --- \u5F15\u7528\u90E8\u5206 --- */\n.note-to-mp blockquote {\n  margin: 30px 0;\n  padding: 16px 20px;\n  background-color: transparent !important;\n  border-left: 3px solid #db2777;\n  color: #4b5563 !important;\n  font-size: 15px;\n  line-height: 1.8 !important;\n  font-style: normal;\n}\n\n/* --- \u4EE3\u7801\u5757\u90E8\u5206 --- */\n\n/* \u884C\u5185\u4EE3\u7801 */\n.note-to-mp code {\n  font-family: Menlo, Monaco, Consolas, "Courier New", monospace, sans-serif;\n  font-size: 14px;\n  padding: 2px 6px;\n  background-color: #fdf2f8 !important;\n  color: #db2777 !important;\n  border-radius: 4px;\n}\n\n/* \u4EE3\u7801\u5757\u5916\u5C42\u5BB9\u5668 */\n.note-to-mp .code-section {\n  margin: 24px 0;\n  padding: 45px 20px 20px;\n  background-color: #1f2937 !important;\n  border-radius: 8px;\n  overflow-x: auto;\n  background-image:\n    radial-gradient(circle, #ff5f56 6px, transparent 7px),\n    radial-gradient(circle, #ffbd2e 6px, transparent 7px),\n    radial-gradient(circle, #27c93f 6px, transparent 7px),\n    linear-gradient(#111827, #111827);\n  background-size: 14px 14px, 14px 14px, 14px 14px, 100% 36px;\n  background-position: 15px 12px, 35px 12px, 55px 12px, 0 0;\n  background-repeat: no-repeat;\n  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);\n}\n\n.note-to-mp .code-section ul { display: none; }\n\n.note-to-mp .code-section pre {\n  margin: 0;\n  padding: 0;\n  background: transparent !important;\n  border: none;\n  line-height: 1.6 !important;\n  white-space: pre-wrap !important;\n  word-wrap: break-word !important;\n  word-break: break-all !important;\n}\n\n.note-to-mp .code-section code,\n.note-to-mp .code-section span {\n  background-color: transparent !important;\n  color: #f9a8d4 !important;\n  padding: 0;\n  font-family: Menlo, Monaco, Consolas, "Courier New", monospace, sans-serif;\n  font-size: 14px;\n}\n\n/* \u56FE\u7247 */\n.note-to-mp img {\n  max-width: 100%;\n  height: auto;\n  display: block;\n  margin: 24px auto;\n  border-radius: 4px;\n  box-shadow: 0 4px 12px rgba(219, 39, 119, 0.1);\n}\n\n/* \u8868\u683C */\n.note-to-mp table {\n  width: 100%;\n  margin: 24px 0;\n  border-collapse: collapse;\n  font-size: 15px;\n}\n.note-to-mp th {\n  background-color: #fdf2f8 !important;\n  padding: 14px 18px;\n  text-align: left;\n  border: none;\n  font-weight: 500;\n  color: #db2777 !important;\n  border-bottom: 2px solid #db2777;\n}\n.note-to-mp td {\n  padding: 14px 18px;\n  border: none;\n  border-bottom: 1px solid #f3f4f6;\n  color: #1f2937 !important;\n}\n```\n';
+var __default6 = '```CSS\n/* \u5168\u5C40\u5C5E\u6027 */\n.note-to-mp {\n  max-width: 700px;\n  margin: 0 auto;\n  padding: 40px;\n  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", Arial, sans-serif;\n  font-size: 16px;\n  line-height: 1.8 !important;\n  color: #1f2937 !important;\n  background-color: #ffffff !important;\n  text-align: left !important;\n  word-wrap: break-word;\n  word-break: break-word;\n}\n\n/* --- \u6807\u9898\u90E8\u5206 --- */\n.note-to-mp h1 {\n  font-size: 18px;\n  font-weight: 400;\n  color: #111111 !important;\n  line-height: 24px !important;\n  margin: 28px 0 3px;\n  padding-bottom: 15px;\n  background-image: linear-gradient(to right, #db2777, #9333ea);\n  background-size: 60px 4px;\n  background-position: left bottom;\n  background-repeat: no-repeat;\n}\n\n.note-to-mp h2 {\n  font-size: 18px;\n  font-weight: 400;\n  color: #374151 !important;\n  line-height: 24px !important;\n  margin: 28px 0 8px;\n  padding-bottom: 10px;\n  background-image: linear-gradient(to right, #db2777, #db2777), linear-gradient(to right, #f3f4f6, #f3f4f6);\n  background-size: 40px 2px, 100% 1px;\n  background-position: left bottom, left bottom;\n  background-repeat: no-repeat;\n}\n\n.note-to-mp h3 {\n  font-size: 18px;\n  font-weight: 400;\n  color: #4b5563 !important;\n  line-height: 24px !important;\n  margin: 28px 0 10px;\n  padding-bottom: 8px;\n  background-image: linear-gradient(to right, #db2777, #db2777);\n  background-size: 30px 2px;\n  background-position: left bottom;\n  background-repeat: no-repeat;\n}\n.note-to-mp h4 {\n  font-size: 18px;\n  font-weight: 400;\n  color: #1d1d1f !important;\n  line-height: 24px !important;\n  margin: 28px 0 12px;\n}\n\n.note-to-mp h5 {\n  font-size: 18px;\n  font-weight: 400;\n  color: #1d1d1f !important;\n  line-height: 24px !important;\n  margin: 28px 0 12px;\n}\n\n.note-to-mp h6 {\n  font-size: 18px;\n  font-weight: 400;\n  color: #1d1d1f !important;\n  line-height: 24px !important;\n  margin: 28px 0 12px;\n}\n\n\n.note-to-mp h4, .note-to-mp h5, .note-to-mp h6 {\n  font-size: 18px;\n  font-weight: 400;\n  color: #6b7280 !important;\n  line-height: 24px !important;\n  margin: 28px 0 12px;\n  padding-bottom: 6px;\n  background-image: linear-gradient(to right, #db2777, #db2777);\n  background-size: 20px 1.5px;\n  background-position: left bottom;\n  background-repeat: no-repeat;\n}\n\n/* \u6BB5\u843D */\n.note-to-mp p {\n  margin: 18px 0 !important;\n  line-height: 1.8 !important;\n  color: #1f2937 !important;\n  font-weight: 300;\n  text-align: left;\n}\n\n/* \u52A0\u7C97 */\n.note-to-mp strong {\n  font-weight: 500;\n  color: #db2777 !important;\n}\n\n/* \u659C\u4F53 */\n.note-to-mp em {\n  font-style: italic;\n  color: #9333ea !important;\n}\n\n/* \u4E0B\u5212\u7EBF */\n.note-to-mp u {\n  text-decoration: none;\n  color: #db2777 !important;\n  background-image: linear-gradient(to right, #db2777, #9333ea);\n  background-size: 100% 1px;\n  background-position: left bottom;\n  background-repeat: no-repeat;\n  padding-bottom: 2px;\n}\n\n/* \u94FE\u63A5 */\n.note-to-mp a {\n  color: #db2777 !important;\n  text-decoration: none;\n  background-image: linear-gradient(#db2777, #db2777);\n  background-size: 100% 1px;\n  background-position: 0 100%;\n  background-repeat: no-repeat;\n  font-weight: 400;\n  word-break: break-all;\n}\n\n/* --- \u5217\u8868\u90E8\u5206 --- */\n.note-to-mp ul, .note-to-mp ol {\n  margin: 18px 0;\n  padding-left: 22px;\n}\n.note-to-mp ul { list-style-type: disc; }\n.note-to-mp ol { list-style-type: decimal; }\n\n.note-to-mp li {\n  margin: 10px 0;\n  line-height: 1.8 !important;\n  color: #1f2937 !important;\n  font-weight: 300;\n}\n.note-to-mp li::marker {\n  color: #db2777;\n}\n\n/* --- \u5F15\u7528\u90E8\u5206 --- */\n.note-to-mp blockquote {\n  margin: 30px 0;\n  padding: 16px 20px;\n  background-color: transparent !important;\n  border-left: 3px solid #db2777;\n  color: #4b5563 !important;\n  font-size: 15px;\n  line-height: 1.8 !important;\n  font-style: normal;\n}\n\n/* --- \u4EE3\u7801\u5757\u90E8\u5206 --- */\n\n/* \u884C\u5185\u4EE3\u7801 */\n.note-to-mp code {\n  font-family: Menlo, Monaco, Consolas, "Courier New", monospace, sans-serif;\n  font-size: 14px;\n  padding: 2px 6px;\n  background-color: #fdf2f8 !important;\n  color: #db2777 !important;\n  border-radius: 4px;\n}\n\n/* \u4EE3\u7801\u5757\u5916\u5C42\u5BB9\u5668 */\n.note-to-mp .code-section {\n  margin: 24px 0;\n  padding: 45px 20px 20px;\n  background-color: #1f2937 !important;\n  border-radius: 8px;\n  overflow-x: auto;\n  background-image:\n    radial-gradient(circle, #ff5f56 6px, transparent 7px),\n    radial-gradient(circle, #ffbd2e 6px, transparent 7px),\n    radial-gradient(circle, #27c93f 6px, transparent 7px),\n    linear-gradient(#111827, #111827);\n  background-size: 14px 14px, 14px 14px, 14px 14px, 100% 36px;\n  background-position: 15px 12px, 35px 12px, 55px 12px, 0 0;\n  background-repeat: no-repeat;\n  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);\n}\n\n.note-to-mp .code-section ul { display: none; }\n\n.note-to-mp .code-section pre {\n  margin: 0;\n  padding: 0;\n  background: transparent !important;\n  border: none;\n  line-height: 1.6 !important;\n  white-space: pre-wrap !important;\n  word-wrap: break-word !important;\n  word-break: break-all !important;\n}\n\n.note-to-mp .code-section code,\n.note-to-mp .code-section span {\n  background-color: transparent !important;\n  color: #f9a8d4 !important;\n  padding: 0;\n  font-family: Menlo, Monaco, Consolas, "Courier New", monospace, sans-serif;\n  font-size: 14px;\n}\n\n/* \u56FE\u7247 */\n.note-to-mp img {\n  max-width: 100%;\n  height: auto;\n  display: block;\n  margin: 24px auto;\n  border-radius: 4px;\n  box-shadow: 0 4px 12px rgba(219, 39, 119, 0.1);\n}\n\n/* \u8868\u683C */\n.note-to-mp table {\n  width: 100%;\n  margin: 24px 0;\n  border-collapse: collapse;\n  font-size: 15px;\n}\n.note-to-mp th {\n  background-color: #fdf2f8 !important;\n  padding: 14px 18px;\n  text-align: left;\n  border: none;\n  font-weight: 500;\n  color: #db2777 !important;\n  border-bottom: 2px solid #db2777;\n}\n.note-to-mp td {\n  padding: 14px 18px;\n  border: none;\n  border-bottom: 1px solid #f3f4f6;\n  color: #1f2937 !important;\n}\n```\n';
 
 // themes/胶囊药丸-绿.md
-var __default8 = '```CSS\n/* \u5168\u5C40\u5C5E\u6027 */\n.note-to-mp {\n  max-width: 700px;\n  margin: 0 auto;\n  padding: 40px;\n  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", Arial, sans-serif;\n  font-size: 16px;\n  line-height: 1.7 !important;\n  color: #374151 !important;\n  background-color: #ffffff !important;\n  border-radius: 24px;\n  border: 1px solid #e5e7eb;\n  text-align: left !important;\n  word-wrap: break-word;\n  word-break: break-word;\n}\n\n/* --- \u6807\u9898\u90E8\u5206 --- */\n.note-to-mp h1 {\n  font-size: 18px;\n  font-weight: 400;\n  color: #047857 !important;\n  line-height: 24px !important;\n  margin: 28px auto 10px;\n  display: table;\n  padding: 8px 1em;\n  background-color: #d1fae5;\n  border-radius: 99px;\n}\n\n.note-to-mp h2 {\n  font-size: 18px;\n  font-weight: 400;\n  color: #065f46 !important;\n  line-height: 24px !important;\n  margin: 28px auto 12px;\n  display: table;\n  padding: 6px 1em;\n  background-color: #ecfdf5;\n  border-radius: 99px;\n}\n\n.note-to-mp h3 {\n  font-size: 18px;\n  font-weight: 400;\n  color: #065f46 !important;\n  line-height: 24px !important;\n  margin: 28px auto 13px;\n  display: table;\n  padding: 5px 1em;\n  background-color: #ecfdf5;\n  border-radius: 99px;\n}\n\n.note-to-mp h4, .note-to-mp h5, .note-to-mp h6 {\n  font-size: 18px;\n  font-weight: 400;\n  color: #047857 !important;\n  line-height: 24px !important;\n  margin: 28px auto 14px;\n  display: table;\n  padding: 4px 1em;\n  background-color: #ecfdf5;\n  border-radius: 99px;\n}\n\n/* \u6BB5\u843D */\n.note-to-mp p {\n  margin: 18px 0 !important;\n  line-height: 1.7 !important;\n  color: #374151 !important;\n  font-weight: 300;\n  text-align: left;\n}\n\n/* \u52A0\u7C97 */\n.note-to-mp strong {\n  font-weight: 500;\n  color: #059669 !important;\n}\n\n/* \u659C\u4F53 */\n.note-to-mp em {\n  font-style: italic;\n  color: #047857 !important;\n}\n\n/* \u4E0B\u5212\u7EBF */\n.note-to-mp u {\n  text-decoration: none;\n  color: #059669 !important;\n  border-bottom: 2px solid #6ee7b7;\n  padding-bottom: 1px;\n}\n\n/* \u94FE\u63A5 */\n.note-to-mp a {\n  color: #059669 !important;\n  text-decoration: none;\n  border-bottom: 1px solid #a7f3d0;\n  font-weight: 400;\n  word-break: break-all;\n}\n\n/* --- \u5217\u8868\u90E8\u5206 --- */\n.note-to-mp ul, .note-to-mp ol {\n  margin: 18px 0;\n  padding-left: 22px;\n}\n.note-to-mp ul { list-style-type: disc; }\n.note-to-mp ol { list-style-type: decimal; }\n\n.note-to-mp li {\n  margin: 10px 0;\n  line-height: 1.7 !important;\n  color: #374151 !important;\n  font-weight: 300;\n}\n.note-to-mp li::marker {\n  color: #10b981;\n}\n\n/* --- \u5F15\u7528\u90E8\u5206 --- */\n.note-to-mp blockquote {\n  margin: 30px 0;\n  padding: 20px;\n  background-color: #f9fafb !important;\n  border: 1px solid #f3f4f6;\n  border-radius: 16px;\n  color: #6b7280 !important;\n  font-size: 15px;\n  line-height: 1.7 !important;\n  font-style: normal;\n}\n\n/* --- \u4EE3\u7801\u5757\u90E8\u5206 --- */\n\n/* \u884C\u5185\u4EE3\u7801 */\n.note-to-mp code {\n  font-family: Menlo, Monaco, Consolas, "Courier New", monospace, sans-serif;\n  font-size: 14px;\n  padding: 2px 8px;\n  background-color: #ecfdf5 !important;\n  color: #065f46 !important;\n  border-radius: 6px;\n}\n\n/* \u4EE3\u7801\u5757\u5916\u5C42\u5BB9\u5668 */\n.note-to-mp .code-section {\n  margin: 24px 0;\n  padding: 45px 20px 20px;\n  background-color: #064e3b !important;\n  border-radius: 16px;\n  overflow-x: auto;\n  background-image:\n    radial-gradient(circle, #ff5f56 6px, transparent 7px),\n    radial-gradient(circle, #ffbd2e 6px, transparent 7px),\n    radial-gradient(circle, #27c93f 6px, transparent 7px),\n    linear-gradient(#022c22, #022c22);\n  background-size: 14px 14px, 14px 14px, 14px 14px, 100% 36px;\n  background-position: 15px 12px, 35px 12px, 55px 12px, 0 0;\n  background-repeat: no-repeat;\n  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);\n}\n\n.note-to-mp .code-section ul { display: none; }\n\n.note-to-mp .code-section pre {\n  margin: 0;\n  padding: 0;\n  background: transparent !important;\n  border: none;\n  line-height: 1.6 !important;\n  white-space: pre-wrap !important;\n  word-wrap: break-word !important;\n  word-break: break-all !important;\n}\n\n.note-to-mp .code-section code,\n.note-to-mp .code-section span {\n  background-color: transparent !important;\n  color: #6ee7b7 !important;\n  padding: 0;\n  font-family: Menlo, Monaco, Consolas, "Courier New", monospace, sans-serif;\n  font-size: 14px;\n}\n\n/* \u56FE\u7247 */\n.note-to-mp img {\n  max-width: 100%;\n  height: auto;\n  display: block;\n  margin: 24px auto;\n  border-radius: 16px;\n  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.1);\n}\n\n/* \u8868\u683C */\n.note-to-mp table {\n  width: 100%;\n  margin: 24px 0;\n  border-collapse: collapse;\n  font-size: 15px;\n  border-radius: 12px;\n  overflow: hidden;\n}\n.note-to-mp th {\n  background-color: #ecfdf5 !important;\n  padding: 14px 18px;\n  text-align: left;\n  border: none;\n  font-weight: 500;\n  color: #065f46 !important;\n}\n.note-to-mp td {\n  padding: 14px 18px;\n  border: none;\n  border-bottom: 1px solid #f3f4f6;\n  color: #374151 !important;\n}\n```\n';
+var __default7 = '```CSS\n/* \u5168\u5C40\u5C5E\u6027 */\n.note-to-mp {\n  max-width: 700px;\n  margin: 0 auto;\n  padding: 40px;\n  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", Arial, sans-serif;\n  font-size: 16px;\n  line-height: 1.7 !important;\n  color: #374151 !important;\n  background-color: #ffffff !important;\n  border-radius: 24px;\n  border: 1px solid #e5e7eb;\n  text-align: left !important;\n  word-wrap: break-word;\n  word-break: break-word;\n}\n\n/* --- \u6807\u9898\u90E8\u5206 --- */\n.note-to-mp h1 {\n  font-size: 18px;\n  font-weight: 400;\n  color: #047857 !important;\n  line-height: 24px !important;\n  margin: 28px auto 10px;\n  display: table;\n  padding: 8px 1em;\n  background-color: #d1fae5;\n  border-radius: 99px;\n}\n\n.note-to-mp h2 {\n  font-size: 18px;\n  font-weight: 400;\n  color: #065f46 !important;\n  line-height: 24px !important;\n  margin: 28px auto 12px;\n  display: table;\n  padding: 6px 1em;\n  background-color: #ecfdf5;\n  border-radius: 99px;\n}\n\n.note-to-mp h3 {\n  font-size: 18px;\n  font-weight: 400;\n  color: #065f46 !important;\n  line-height: 24px !important;\n  margin: 28px auto 13px;\n  display: table;\n  padding: 5px 1em;\n  background-color: #ecfdf5;\n  border-radius: 99px;\n}\n\n.note-to-mp h4, .note-to-mp h5, .note-to-mp h6 {\n  font-size: 18px;\n  font-weight: 400;\n  color: #047857 !important;\n  line-height: 24px !important;\n  margin: 28px auto 14px;\n  display: table;\n  padding: 4px 1em;\n  background-color: #ecfdf5;\n  border-radius: 99px;\n}\n\n/* \u6BB5\u843D */\n.note-to-mp p {\n  margin: 18px 0 !important;\n  line-height: 1.7 !important;\n  color: #374151 !important;\n  font-weight: 300;\n  text-align: left;\n}\n\n/* \u52A0\u7C97 */\n.note-to-mp strong {\n  font-weight: 500;\n  color: #059669 !important;\n}\n\n/* \u659C\u4F53 */\n.note-to-mp em {\n  font-style: italic;\n  color: #047857 !important;\n}\n\n/* \u4E0B\u5212\u7EBF */\n.note-to-mp u {\n  text-decoration: none;\n  color: #059669 !important;\n  border-bottom: 2px solid #6ee7b7;\n  padding-bottom: 1px;\n}\n\n/* \u94FE\u63A5 */\n.note-to-mp a {\n  color: #059669 !important;\n  text-decoration: none;\n  border-bottom: 1px solid #a7f3d0;\n  font-weight: 400;\n  word-break: break-all;\n}\n\n/* --- \u5217\u8868\u90E8\u5206 --- */\n.note-to-mp ul, .note-to-mp ol {\n  margin: 18px 0;\n  padding-left: 22px;\n}\n.note-to-mp ul { list-style-type: disc; }\n.note-to-mp ol { list-style-type: decimal; }\n\n.note-to-mp li {\n  margin: 10px 0;\n  line-height: 1.7 !important;\n  color: #374151 !important;\n  font-weight: 300;\n}\n.note-to-mp li::marker {\n  color: #10b981;\n}\n\n/* --- \u5F15\u7528\u90E8\u5206 --- */\n.note-to-mp blockquote {\n  margin: 30px 0;\n  padding: 20px;\n  background-color: #f9fafb !important;\n  border: 1px solid #f3f4f6;\n  border-radius: 16px;\n  color: #6b7280 !important;\n  font-size: 15px;\n  line-height: 1.7 !important;\n  font-style: normal;\n}\n\n/* --- \u4EE3\u7801\u5757\u90E8\u5206 --- */\n\n/* \u884C\u5185\u4EE3\u7801 */\n.note-to-mp code {\n  font-family: Menlo, Monaco, Consolas, "Courier New", monospace, sans-serif;\n  font-size: 14px;\n  padding: 2px 8px;\n  background-color: #ecfdf5 !important;\n  color: #065f46 !important;\n  border-radius: 6px;\n}\n\n/* \u4EE3\u7801\u5757\u5916\u5C42\u5BB9\u5668 */\n.note-to-mp .code-section {\n  margin: 24px 0;\n  padding: 45px 20px 20px;\n  background-color: #064e3b !important;\n  border-radius: 16px;\n  overflow-x: auto;\n  background-image:\n    radial-gradient(circle, #ff5f56 6px, transparent 7px),\n    radial-gradient(circle, #ffbd2e 6px, transparent 7px),\n    radial-gradient(circle, #27c93f 6px, transparent 7px),\n    linear-gradient(#022c22, #022c22);\n  background-size: 14px 14px, 14px 14px, 14px 14px, 100% 36px;\n  background-position: 15px 12px, 35px 12px, 55px 12px, 0 0;\n  background-repeat: no-repeat;\n  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);\n}\n\n.note-to-mp .code-section ul { display: none; }\n\n.note-to-mp .code-section pre {\n  margin: 0;\n  padding: 0;\n  background: transparent !important;\n  border: none;\n  line-height: 1.6 !important;\n  white-space: pre-wrap !important;\n  word-wrap: break-word !important;\n  word-break: break-all !important;\n}\n\n.note-to-mp .code-section code,\n.note-to-mp .code-section span {\n  background-color: transparent !important;\n  color: #6ee7b7 !important;\n  padding: 0;\n  font-family: Menlo, Monaco, Consolas, "Courier New", monospace, sans-serif;\n  font-size: 14px;\n}\n\n/* \u56FE\u7247 */\n.note-to-mp img {\n  max-width: 100%;\n  height: auto;\n  display: block;\n  margin: 24px auto;\n  border-radius: 16px;\n  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.1);\n}\n\n/* \u8868\u683C */\n.note-to-mp table {\n  width: 100%;\n  margin: 24px 0;\n  border-collapse: collapse;\n  font-size: 15px;\n  border-radius: 12px;\n  overflow: hidden;\n}\n.note-to-mp th {\n  background-color: #ecfdf5 !important;\n  padding: 14px 18px;\n  text-align: left;\n  border: none;\n  font-weight: 500;\n  color: #065f46 !important;\n}\n.note-to-mp td {\n  padding: 14px 18px;\n  border: none;\n  border-bottom: 1px solid #f3f4f6;\n  color: #374151 !important;\n}\n```\n';
 
 // themes/荧光马克-绿.md
-var __default9 = '```CSS\n/* \u5168\u5C40\u5C5E\u6027 */\n.note-to-mp {\n  max-width: 700px;\n  margin: 0 auto;\n  padding: 20px;\n  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", Arial, sans-serif;\n  font-size: 16px;\n  line-height: 1.8 !important;\n  color: #333333 !important;\n  background-color: #ffffff !important;\n  text-align: left !important;\n  word-wrap: break-word;\n  word-break: break-word;\n}\n\n/* --- \u6807\u9898\u90E8\u5206 --- */\n.note-to-mp h1 {\n  font-size: 18px;\n  font-weight: 400;\n  color: #000000 !important;\n  line-height: 24px !important;\n  margin: 28px 0 10px;\n  display: inline-block;\n  padding-bottom: 8px;\n  padding-right: 10px;\n  background-image: linear-gradient(120deg, #84fab0 0%, #8fd3f4 100%);\n  background-repeat: no-repeat;\n  background-size: 100% 40%;\n  background-position: 0 88%;\n}\n\n.note-to-mp h2 {\n  font-size: 18px;\n  font-weight: 400;\n  color: #000000 !important;\n  line-height: 24px !important;\n  margin: 28px 0 12px;\n  display: inline-block;\n  padding-bottom: 6px;\n  padding-right: 10px;\n  background-image: linear-gradient(120deg, #d4fc79 0%, #96e6a1 100%);\n  background-repeat: no-repeat;\n  background-size: 100% 30%;\n  background-position: 0 90%;\n}\n\n.note-to-mp h3 {\n  font-size: 18px;\n  font-weight: 400;\n  color: #111111 !important;\n  line-height: 24px !important;\n  margin: 28px 0 14px;\n  display: inline-block;\n  padding-bottom: 4px;\n  padding-right: 10px;\n  background-image: linear-gradient(120deg, #a7f3d0 0%, #6ee7b7 100%);\n  background-repeat: no-repeat;\n  background-size: 100% 25%;\n  background-position: 0 90%;\n}\n.note-to-mp h4 {\n  font-size: 18px;\n  font-weight: 400;\n  color: #1d1d1f !important;\n  line-height: 24px !important;\n  margin: 28px 0 18px;\n}\n\n.note-to-mp h5 {\n  font-size: 18px;\n  font-weight: 400;\n  color: #1d1d1f !important;\n  line-height: 24px !important;\n  margin: 28px 0 18px;\n}\n\n.note-to-mp h6 {\n  font-size: 18px;\n  font-weight: 400;\n  color: #1d1d1f !important;\n  line-height: 24px !important;\n  margin: 28px 0 18px;\n}\n\n\n.note-to-mp h4, .note-to-mp h5, .note-to-mp h6 {\n  font-size: 18px;\n  font-weight: 400;\n  color: #1f2937 !important;\n  line-height: 24px !important;\n  margin: 28px 0 18px;\n}\n\n/* \u6BB5\u843D */\n.note-to-mp p {\n  margin: 18px 0 !important;\n  line-height: 1.8 !important;\n  color: #333333 !important;\n  font-weight: 300;\n  text-align: left;\n}\n\n/* \u52A0\u7C97 */\n.note-to-mp strong {\n  font-weight: 500;\n  color: #064e3b !important;\n  background-color: #a7f3d0;\n  padding: 0 4px;\n}\n\n/* \u659C\u4F53 */\n.note-to-mp em {\n  font-style: italic;\n  color: #374151 !important;\n  font-weight: 300;\n}\n\n/* \u4E0B\u5212\u7EBF */\n.note-to-mp u {\n  text-decoration: none;\n  border-bottom: 2px solid #6ee7b7;\n  padding-bottom: 1px;\n}\n\n/* \u94FE\u63A5 */\n.note-to-mp a {\n  color: #059669 !important;\n  text-decoration: none;\n  font-weight: 400;\n  border-bottom: 1px solid #6ee7b7;\n  word-break: break-all;\n}\n\n/* --- \u5217\u8868\u90E8\u5206 --- */\n.note-to-mp ul, .note-to-mp ol {\n  margin: 18px 0;\n  padding-left: 22px;\n}\n.note-to-mp ul { list-style-type: disc; }\n.note-to-mp ol { list-style-type: decimal; }\n\n.note-to-mp li {\n  margin: 10px 0;\n  line-height: 1.8 !important;\n  color: #333333 !important;\n  font-weight: 300;\n}\n\n/* --- \u5F15\u7528\u90E8\u5206 --- */\n.note-to-mp blockquote {\n  margin: 40px 0;\n  padding: 20px 24px;\n  background-color: #ecfdf5 !important;\n  border-left: 4px solid #34d399;\n  border-radius: 0 8px 8px 0;\n  color: #374151 !important;\n  font-size: 16px;\n  line-height: 1.8 !important;\n  font-weight: 400;\n  font-style: italic;\n}\n\n/* --- \u4EE3\u7801\u5757\u90E8\u5206 --- */\n\n/* \u884C\u5185\u4EE3\u7801 */\n.note-to-mp code {\n  font-family: Menlo, Monaco, Consolas, "Courier New", monospace, sans-serif;\n  font-size: 14px;\n  padding: 2px 6px;\n  background-color: #d1fae5 !important;\n  color: #065f46 !important;\n  border-radius: 4px;\n  font-weight: 400;\n}\n\n/* \u4EE3\u7801\u5757\u5916\u5C42\u5BB9\u5668 */\n.note-to-mp .code-section {\n  margin: 24px 0;\n  padding: 45px 20px 20px;\n  background-color: #064e3b !important;\n  border-radius: 8px;\n  overflow-x: auto;\n  background-image:\n    radial-gradient(circle, #ff5f56 6px, transparent 7px),\n    radial-gradient(circle, #ffbd2e 6px, transparent 7px),\n    radial-gradient(circle, #27c93f 6px, transparent 7px),\n    linear-gradient(#022c22, #022c22);\n  background-size: 14px 14px, 14px 14px, 14px 14px, 100% 36px;\n  background-position: 15px 12px, 35px 12px, 55px 12px, 0 0;\n  background-repeat: no-repeat;\n  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15);\n}\n\n.note-to-mp .code-section ul { display: none; }\n\n.note-to-mp .code-section pre {\n  margin: 0;\n  padding: 0;\n  background: transparent !important;\n  border: none;\n  line-height: 1.6 !important;\n  white-space: pre-wrap !important;\n  word-wrap: break-word !important;\n  word-break: break-all !important;\n}\n\n.note-to-mp .code-section code,\n.note-to-mp .code-section span {\n  background-color: transparent !important;\n  color: #6ee7b7 !important;\n  padding: 0;\n  font-family: Menlo, Monaco, Consolas, "Courier New", monospace, sans-serif;\n  font-size: 14px;\n  font-weight: 400;\n}\n\n/* \u56FE\u7247 */\n.note-to-mp img {\n  max-width: 100%;\n  height: auto;\n  display: block;\n  margin: 24px auto;\n  border-radius: 8px;\n  box-shadow: 0 8px 24px rgba(16, 185, 129, 0.2);\n}\n\n/* \u8868\u683C */\n.note-to-mp table {\n  width: 100%;\n  margin: 24px 0;\n  border-collapse: collapse;\n  font-size: 15px;\n}\n.note-to-mp th {\n  background-color: #d1fae5 !important;\n  padding: 14px 18px;\n  text-align: left;\n  border: none;\n  font-weight: 500;\n  color: #065f46 !important;\n  border-bottom: 2px solid #10b981;\n}\n.note-to-mp td {\n  padding: 14px 18px;\n  border: none;\n  border-bottom: 1px solid #d1fae5;\n  color: #333333 !important;\n  font-weight: 300;\n}\n```\n';
+var __default8 = '```CSS\n/* \u5168\u5C40\u5C5E\u6027 */\n.note-to-mp {\n  max-width: 700px;\n  margin: 0 auto;\n  padding: 20px;\n  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", Arial, sans-serif;\n  font-size: 16px;\n  line-height: 1.8 !important;\n  color: #333333 !important;\n  background-color: #ffffff !important;\n  text-align: left !important;\n  word-wrap: break-word;\n  word-break: break-word;\n}\n\n/* --- \u6807\u9898\u90E8\u5206 --- */\n.note-to-mp h1 {\n  font-size: 18px;\n  font-weight: 400;\n  color: #000000 !important;\n  line-height: 24px !important;\n  margin: 28px 0 10px;\n  display: inline-block;\n  padding-bottom: 8px;\n  padding-right: 10px;\n  background-image: linear-gradient(120deg, #84fab0 0%, #8fd3f4 100%);\n  background-repeat: no-repeat;\n  background-size: 100% 40%;\n  background-position: 0 88%;\n}\n\n.note-to-mp h2 {\n  font-size: 18px;\n  font-weight: 400;\n  color: #000000 !important;\n  line-height: 24px !important;\n  margin: 28px 0 12px;\n  display: inline-block;\n  padding-bottom: 6px;\n  padding-right: 10px;\n  background-image: linear-gradient(120deg, #d4fc79 0%, #96e6a1 100%);\n  background-repeat: no-repeat;\n  background-size: 100% 30%;\n  background-position: 0 90%;\n}\n\n.note-to-mp h3 {\n  font-size: 18px;\n  font-weight: 400;\n  color: #111111 !important;\n  line-height: 24px !important;\n  margin: 28px 0 14px;\n  display: inline-block;\n  padding-bottom: 4px;\n  padding-right: 10px;\n  background-image: linear-gradient(120deg, #a7f3d0 0%, #6ee7b7 100%);\n  background-repeat: no-repeat;\n  background-size: 100% 25%;\n  background-position: 0 90%;\n}\n.note-to-mp h4 {\n  font-size: 18px;\n  font-weight: 400;\n  color: #1d1d1f !important;\n  line-height: 24px !important;\n  margin: 28px 0 18px;\n}\n\n.note-to-mp h5 {\n  font-size: 18px;\n  font-weight: 400;\n  color: #1d1d1f !important;\n  line-height: 24px !important;\n  margin: 28px 0 18px;\n}\n\n.note-to-mp h6 {\n  font-size: 18px;\n  font-weight: 400;\n  color: #1d1d1f !important;\n  line-height: 24px !important;\n  margin: 28px 0 18px;\n}\n\n\n.note-to-mp h4, .note-to-mp h5, .note-to-mp h6 {\n  font-size: 18px;\n  font-weight: 400;\n  color: #1f2937 !important;\n  line-height: 24px !important;\n  margin: 28px 0 18px;\n}\n\n/* \u6BB5\u843D */\n.note-to-mp p {\n  margin: 18px 0 !important;\n  line-height: 1.8 !important;\n  color: #333333 !important;\n  font-weight: 300;\n  text-align: left;\n}\n\n/* \u52A0\u7C97 */\n.note-to-mp strong {\n  font-weight: 500;\n  color: #064e3b !important;\n  background-color: #a7f3d0;\n  padding: 0 4px;\n}\n\n/* \u659C\u4F53 */\n.note-to-mp em {\n  font-style: italic;\n  color: #374151 !important;\n  font-weight: 300;\n}\n\n/* \u4E0B\u5212\u7EBF */\n.note-to-mp u {\n  text-decoration: none;\n  border-bottom: 2px solid #6ee7b7;\n  padding-bottom: 1px;\n}\n\n/* \u94FE\u63A5 */\n.note-to-mp a {\n  color: #059669 !important;\n  text-decoration: none;\n  font-weight: 400;\n  border-bottom: 1px solid #6ee7b7;\n  word-break: break-all;\n}\n\n/* --- \u5217\u8868\u90E8\u5206 --- */\n.note-to-mp ul, .note-to-mp ol {\n  margin: 18px 0;\n  padding-left: 22px;\n}\n.note-to-mp ul { list-style-type: disc; }\n.note-to-mp ol { list-style-type: decimal; }\n\n.note-to-mp li {\n  margin: 10px 0;\n  line-height: 1.8 !important;\n  color: #333333 !important;\n  font-weight: 300;\n}\n\n/* --- \u5F15\u7528\u90E8\u5206 --- */\n.note-to-mp blockquote {\n  margin: 40px 0;\n  padding: 20px 24px;\n  background-color: #ecfdf5 !important;\n  border-left: 4px solid #34d399;\n  border-radius: 0 8px 8px 0;\n  color: #374151 !important;\n  font-size: 16px;\n  line-height: 1.8 !important;\n  font-weight: 400;\n  font-style: italic;\n}\n\n/* --- \u4EE3\u7801\u5757\u90E8\u5206 --- */\n\n/* \u884C\u5185\u4EE3\u7801 */\n.note-to-mp code {\n  font-family: Menlo, Monaco, Consolas, "Courier New", monospace, sans-serif;\n  font-size: 14px;\n  padding: 2px 6px;\n  background-color: #d1fae5 !important;\n  color: #065f46 !important;\n  border-radius: 4px;\n  font-weight: 400;\n}\n\n/* \u4EE3\u7801\u5757\u5916\u5C42\u5BB9\u5668 */\n.note-to-mp .code-section {\n  margin: 24px 0;\n  padding: 45px 20px 20px;\n  background-color: #064e3b !important;\n  border-radius: 8px;\n  overflow-x: auto;\n  background-image:\n    radial-gradient(circle, #ff5f56 6px, transparent 7px),\n    radial-gradient(circle, #ffbd2e 6px, transparent 7px),\n    radial-gradient(circle, #27c93f 6px, transparent 7px),\n    linear-gradient(#022c22, #022c22);\n  background-size: 14px 14px, 14px 14px, 14px 14px, 100% 36px;\n  background-position: 15px 12px, 35px 12px, 55px 12px, 0 0;\n  background-repeat: no-repeat;\n  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15);\n}\n\n.note-to-mp .code-section ul { display: none; }\n\n.note-to-mp .code-section pre {\n  margin: 0;\n  padding: 0;\n  background: transparent !important;\n  border: none;\n  line-height: 1.6 !important;\n  white-space: pre-wrap !important;\n  word-wrap: break-word !important;\n  word-break: break-all !important;\n}\n\n.note-to-mp .code-section code,\n.note-to-mp .code-section span {\n  background-color: transparent !important;\n  color: #6ee7b7 !important;\n  padding: 0;\n  font-family: Menlo, Monaco, Consolas, "Courier New", monospace, sans-serif;\n  font-size: 14px;\n  font-weight: 400;\n}\n\n/* \u56FE\u7247 */\n.note-to-mp img {\n  max-width: 100%;\n  height: auto;\n  display: block;\n  margin: 24px auto;\n  border-radius: 8px;\n  box-shadow: 0 8px 24px rgba(16, 185, 129, 0.2);\n}\n\n/* \u8868\u683C */\n.note-to-mp table {\n  width: 100%;\n  margin: 24px 0;\n  border-collapse: collapse;\n  font-size: 15px;\n}\n.note-to-mp th {\n  background-color: #d1fae5 !important;\n  padding: 14px 18px;\n  text-align: left;\n  border: none;\n  font-weight: 500;\n  color: #065f46 !important;\n  border-bottom: 2px solid #10b981;\n}\n.note-to-mp td {\n  padding: 14px 18px;\n  border: none;\n  border-bottom: 1px solid #d1fae5;\n  color: #333333 !important;\n  font-weight: 300;\n}\n```\n';
 
 // themes/荧光马克-蓝.md
-var __default10 = '```CSS\n/* \u5168\u5C40\u5C5E\u6027 */\n.note-to-mp {\n  max-width: 700px;\n  margin: 0 auto;\n  padding: 20px;\n  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", Arial, sans-serif;\n  font-size: 16px;\n  line-height: 1.8 !important;\n  color: #333333 !important;\n  background-color: #ffffff !important;\n  text-align: left !important;\n  word-wrap: break-word;\n  word-break: break-word;\n}\n\n/* --- \u6807\u9898\u90E8\u5206 --- */\n.note-to-mp h1 {\n  font-size: 18px;\n  font-weight: 400;\n  color: #000000 !important;\n  line-height: 24px !important;\n  margin: 28px 0 10px;\n  display: inline-block;\n  padding-bottom: 8px;\n  padding-right: 10px;\n  background-image: linear-gradient(120deg, #0015e4 0%, #4b5bff 100%);\n  background-repeat: no-repeat;\n  background-size: 100% 40%;\n  background-position: 0 88%;\n}\n\n.note-to-mp h2 {\n  font-size: 18px;\n  font-weight: 400;\n  color: #000000 !important;\n  line-height: 24px !important;\n  margin: 28px 0 12px;\n  display: inline-block;\n  padding-bottom: 6px;\n  padding-right: 10px;\n  background-image: linear-gradient(120deg, #0015e4 0%, #4b5bff 100%);\n  background-repeat: no-repeat;\n  background-size: 100% 30%;\n  background-position: 0 90%;\n}\n\n.note-to-mp h3 {\n  font-size: 18px;\n  font-weight: 400;\n  color: #111111 !important;\n  line-height: 24px !important;\n  margin: 28px 0 14px;\n  display: inline-block;\n  padding-bottom: 4px;\n  padding-right: 10px;\n  background-image: linear-gradient(120deg, #0015e4 0%, #4b5bff 100%);\n  background-repeat: no-repeat;\n  background-size: 100% 25%;\n  background-position: 0 90%;\n}\n.note-to-mp h4 {\n  font-size: 18px;\n  font-weight: 400;\n  color: #1d1d1f !important;\n  line-height: 24px !important;\n  margin: 28px 0 18px;\n}\n\n.note-to-mp h5 {\n  font-size: 18px;\n  font-weight: 400;\n  color: #1d1d1f !important;\n  line-height: 24px !important;\n  margin: 28px 0 18px;\n}\n\n.note-to-mp h6 {\n  font-size: 18px;\n  font-weight: 400;\n  color: #1d1d1f !important;\n  line-height: 24px !important;\n  margin: 28px 0 18px;\n}\n\n\n.note-to-mp h4, .note-to-mp h5, .note-to-mp h6 {\n  font-size: 18px;\n  font-weight: 400;\n  color: #1f2937 !important;\n  line-height: 24px !important;\n  margin: 28px 0 18px;\n}\n\n/* \u6BB5\u843D */\n.note-to-mp p {\n  margin: 18px 0 !important;\n  line-height: 1.8 !important;\n  color: #333333 !important;\n  font-weight: 300;\n  text-align: left;\n}\n\n/* \u52A0\u7C97 */\n.note-to-mp strong {\n  font-weight: 500;\n  color: #0015e4 !important;\n  background-color: #dbe1ff;\n  padding: 0 4px;\n}\n\n/* \u659C\u4F53 */\n.note-to-mp em {\n  font-style: italic;\n  color: #0015e4 !important;\n  font-weight: 300;\n}\n\n/* \u4E0B\u5212\u7EBF */\n.note-to-mp u {\n  text-decoration: none;\n  border-bottom: 2px solid #6a7bff;\n  padding-bottom: 1px;\n}\n\n/* \u94FE\u63A5 */\n.note-to-mp a {\n  color: #0015e4 !important;\n  text-decoration: none;\n  font-weight: 400;\n  border-bottom: 1px solid #6a7bff;\n  word-break: break-all;\n}\n\n/* --- \u5217\u8868\u90E8\u5206 --- */\n.note-to-mp ul, .note-to-mp ol {\n  margin: 18px 0;\n  padding-left: 22px;\n}\n.note-to-mp ul { list-style-type: disc; }\n.note-to-mp ol { list-style-type: decimal; }\n\n.note-to-mp li {\n  margin: 10px 0;\n  line-height: 1.8 !important;\n  color: #333333 !important;\n  font-weight: 300;\n}\n\n/* --- \u5F15\u7528\u90E8\u5206 --- */\n.note-to-mp blockquote {\n  margin: 40px 0;\n  padding: 20px 24px;\n  background-color: #eef1ff !important;\n  border-left: 4px solid #0015e4;\n  border-radius: 0 8px 8px 0;\n  color: #1f2a7a !important;\n  font-size: 16px;\n  line-height: 1.8 !important;\n  font-weight: 400;\n  font-style: italic;\n}\n\n/* --- \u4EE3\u7801\u5757\u90E8\u5206 --- */\n\n/* \u884C\u5185\u4EE3\u7801 */\n.note-to-mp code {\n  font-family: Menlo, Monaco, Consolas, "Courier New", monospace, sans-serif;\n  font-size: 14px;\n  padding: 2px 6px;\n  background-color: #e1e6ff !important;\n  color: #0015e4 !important;\n  border-radius: 4px;\n  font-weight: 400;\n}\n\n/* \u4EE3\u7801\u5757\u5916\u5C42\u5BB9\u5668 */\n.note-to-mp .code-section {\n  margin: 24px 0;\n  padding: 45px 20px 20px;\n  background-color: #0b1a5a !important;\n  border-radius: 8px;\n  overflow-x: auto;\n  background-image:\n    radial-gradient(circle, #ff5f56 6px, transparent 7px),\n    radial-gradient(circle, #ffbd2e 6px, transparent 7px),\n    radial-gradient(circle, #27c93f 6px, transparent 7px),\n    linear-gradient(#09114a, #09114a);\n  background-size: 14px 14px, 14px 14px, 14px 14px, 100% 36px;\n  background-position: 15px 12px, 35px 12px, 55px 12px, 0 0;\n  background-repeat: no-repeat;\n  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15);\n}\n\n.note-to-mp .code-section ul { display: none; }\n\n.note-to-mp .code-section pre {\n  margin: 0;\n  padding: 0;\n  background: transparent !important;\n  border: none;\n  line-height: 1.6 !important;\n  white-space: pre-wrap !important;\n  word-wrap: break-word !important;\n  word-break: break-all !important;\n}\n\n.note-to-mp .code-section code,\n.note-to-mp .code-section span {\n  background-color: transparent !important;\n  color: #9aa9ff !important;\n  padding: 0;\n  font-family: Menlo, Monaco, Consolas, "Courier New", monospace, sans-serif;\n  font-size: 14px;\n  font-weight: 400;\n}\n\n/* \u56FE\u7247 */\n.note-to-mp img {\n  max-width: 100%;\n  height: auto;\n  display: block;\n  margin: 24px auto;\n  border-radius: 8px;\n  box-shadow: 0 8px 24px rgba(0, 21, 228, 0.2);\n}\n\n/* \u8868\u683C */\n.note-to-mp table {\n  width: 100%;\n  margin: 24px 0;\n  border-collapse: collapse;\n  font-size: 15px;\n}\n.note-to-mp th {\n  background-color: #e1e6ff !important;\n  padding: 14px 18px;\n  text-align: left;\n  border: none;\n  font-weight: 500;\n  color: #0015e4 !important;\n  border-bottom: 2px solid #4b5bff;\n}\n.note-to-mp td {\n  padding: 14px 18px;\n  border: none;\n  border-bottom: 1px solid #e1e6ff;\n  color: #333333 !important;\n  font-weight: 300;\n}\n```\n';
+var __default9 = '```CSS\n/* \u5168\u5C40\u5C5E\u6027 */\n.note-to-mp {\n  max-width: 700px;\n  margin: 0 auto;\n  padding: 20px;\n  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", Arial, sans-serif;\n  font-size: 16px;\n  line-height: 1.8 !important;\n  color: #333333 !important;\n  background-color: #ffffff !important;\n  text-align: left !important;\n  word-wrap: break-word;\n  word-break: break-word;\n}\n\n/* --- \u6807\u9898\u90E8\u5206 --- */\n.note-to-mp h1 {\n  font-size: 18px;\n  font-weight: 400;\n  color: #000000 !important;\n  line-height: 24px !important;\n  margin: 28px 0 10px;\n  display: inline-block;\n  padding-bottom: 8px;\n  padding-right: 10px;\n  background-image: linear-gradient(120deg, #0015e4 0%, #4b5bff 100%);\n  background-repeat: no-repeat;\n  background-size: 100% 40%;\n  background-position: 0 88%;\n}\n\n.note-to-mp h2 {\n  font-size: 18px;\n  font-weight: 400;\n  color: #000000 !important;\n  line-height: 24px !important;\n  margin: 28px 0 12px;\n  display: inline-block;\n  padding-bottom: 6px;\n  padding-right: 10px;\n  background-image: linear-gradient(120deg, #0015e4 0%, #4b5bff 100%);\n  background-repeat: no-repeat;\n  background-size: 100% 30%;\n  background-position: 0 90%;\n}\n\n.note-to-mp h3 {\n  font-size: 18px;\n  font-weight: 400;\n  color: #111111 !important;\n  line-height: 24px !important;\n  margin: 28px 0 14px;\n  display: inline-block;\n  padding-bottom: 4px;\n  padding-right: 10px;\n  background-image: linear-gradient(120deg, #0015e4 0%, #4b5bff 100%);\n  background-repeat: no-repeat;\n  background-size: 100% 25%;\n  background-position: 0 90%;\n}\n.note-to-mp h4 {\n  font-size: 18px;\n  font-weight: 400;\n  color: #1d1d1f !important;\n  line-height: 24px !important;\n  margin: 28px 0 18px;\n}\n\n.note-to-mp h5 {\n  font-size: 18px;\n  font-weight: 400;\n  color: #1d1d1f !important;\n  line-height: 24px !important;\n  margin: 28px 0 18px;\n}\n\n.note-to-mp h6 {\n  font-size: 18px;\n  font-weight: 400;\n  color: #1d1d1f !important;\n  line-height: 24px !important;\n  margin: 28px 0 18px;\n}\n\n\n.note-to-mp h4, .note-to-mp h5, .note-to-mp h6 {\n  font-size: 18px;\n  font-weight: 400;\n  color: #1f2937 !important;\n  line-height: 24px !important;\n  margin: 28px 0 18px;\n}\n\n/* \u6BB5\u843D */\n.note-to-mp p {\n  margin: 18px 0 !important;\n  line-height: 1.8 !important;\n  color: #333333 !important;\n  font-weight: 300;\n  text-align: left;\n}\n\n/* \u52A0\u7C97 */\n.note-to-mp strong {\n  font-weight: 500;\n  color: #0015e4 !important;\n  background-color: #dbe1ff;\n  padding: 0 4px;\n}\n\n/* \u659C\u4F53 */\n.note-to-mp em {\n  font-style: italic;\n  color: #0015e4 !important;\n  font-weight: 300;\n}\n\n/* \u4E0B\u5212\u7EBF */\n.note-to-mp u {\n  text-decoration: none;\n  border-bottom: 2px solid #6a7bff;\n  padding-bottom: 1px;\n}\n\n/* \u94FE\u63A5 */\n.note-to-mp a {\n  color: #0015e4 !important;\n  text-decoration: none;\n  font-weight: 400;\n  border-bottom: 1px solid #6a7bff;\n  word-break: break-all;\n}\n\n/* --- \u5217\u8868\u90E8\u5206 --- */\n.note-to-mp ul, .note-to-mp ol {\n  margin: 18px 0;\n  padding-left: 22px;\n}\n.note-to-mp ul { list-style-type: disc; }\n.note-to-mp ol { list-style-type: decimal; }\n\n.note-to-mp li {\n  margin: 10px 0;\n  line-height: 1.8 !important;\n  color: #333333 !important;\n  font-weight: 300;\n}\n\n/* --- \u5F15\u7528\u90E8\u5206 --- */\n.note-to-mp blockquote {\n  margin: 40px 0;\n  padding: 20px 24px;\n  background-color: #eef1ff !important;\n  border-left: 4px solid #0015e4;\n  border-radius: 0 8px 8px 0;\n  color: #1f2a7a !important;\n  font-size: 16px;\n  line-height: 1.8 !important;\n  font-weight: 400;\n  font-style: italic;\n}\n\n/* --- \u4EE3\u7801\u5757\u90E8\u5206 --- */\n\n/* \u884C\u5185\u4EE3\u7801 */\n.note-to-mp code {\n  font-family: Menlo, Monaco, Consolas, "Courier New", monospace, sans-serif;\n  font-size: 14px;\n  padding: 2px 6px;\n  background-color: #e1e6ff !important;\n  color: #0015e4 !important;\n  border-radius: 4px;\n  font-weight: 400;\n}\n\n/* \u4EE3\u7801\u5757\u5916\u5C42\u5BB9\u5668 */\n.note-to-mp .code-section {\n  margin: 24px 0;\n  padding: 45px 20px 20px;\n  background-color: #0b1a5a !important;\n  border-radius: 8px;\n  overflow-x: auto;\n  background-image:\n    radial-gradient(circle, #ff5f56 6px, transparent 7px),\n    radial-gradient(circle, #ffbd2e 6px, transparent 7px),\n    radial-gradient(circle, #27c93f 6px, transparent 7px),\n    linear-gradient(#09114a, #09114a);\n  background-size: 14px 14px, 14px 14px, 14px 14px, 100% 36px;\n  background-position: 15px 12px, 35px 12px, 55px 12px, 0 0;\n  background-repeat: no-repeat;\n  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15);\n}\n\n.note-to-mp .code-section ul { display: none; }\n\n.note-to-mp .code-section pre {\n  margin: 0;\n  padding: 0;\n  background: transparent !important;\n  border: none;\n  line-height: 1.6 !important;\n  white-space: pre-wrap !important;\n  word-wrap: break-word !important;\n  word-break: break-all !important;\n}\n\n.note-to-mp .code-section code,\n.note-to-mp .code-section span {\n  background-color: transparent !important;\n  color: #9aa9ff !important;\n  padding: 0;\n  font-family: Menlo, Monaco, Consolas, "Courier New", monospace, sans-serif;\n  font-size: 14px;\n  font-weight: 400;\n}\n\n/* \u56FE\u7247 */\n.note-to-mp img {\n  max-width: 100%;\n  height: auto;\n  display: block;\n  margin: 24px auto;\n  border-radius: 8px;\n  box-shadow: 0 8px 24px rgba(0, 21, 228, 0.2);\n}\n\n/* \u8868\u683C */\n.note-to-mp table {\n  width: 100%;\n  margin: 24px 0;\n  border-collapse: collapse;\n  font-size: 15px;\n}\n.note-to-mp th {\n  background-color: #e1e6ff !important;\n  padding: 14px 18px;\n  text-align: left;\n  border: none;\n  font-weight: 500;\n  color: #0015e4 !important;\n  border-bottom: 2px solid #4b5bff;\n}\n.note-to-mp td {\n  padding: 14px 18px;\n  border: none;\n  border-bottom: 1px solid #e1e6ff;\n  color: #333333 !important;\n  font-weight: 300;\n}\n```\n';
 
 // themes/霓虹暗底-青紫.md
-var __default11 = '```CSS\n/* \u5168\u5C40\u5C5E\u6027 */\n.note-to-mp {\n  max-width: 700px;\n  margin: 0 auto;\n  padding: 40px;\n  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", Arial, sans-serif;\n  font-size: 16px;\n  line-height: 1.7 !important;\n  color: #94a3b8 !important;\n  background-color: #0b1120 !important;\n  border-radius: 12px;\n  border: 1px solid #1e293b;\n  text-align: left !important;\n  word-wrap: break-word;\n  word-break: break-word;\n}\n\n/* --- \u6807\u9898\u90E8\u5206 --- */\n.note-to-mp h1 {\n  font-size: 18px;\n  font-weight: 400;\n  color: transparent !important;\n  line-height: 24px !important;\n  margin: 28px 0 18px;\n  background: linear-gradient(to right, #22d3ee, #a855f7);\n  -webkit-background-clip: text;\n  background-clip: text;\n}\n\n.note-to-mp h2 {\n  font-size: 18px;\n  font-weight: 400;\n  color: #e2e8f0 !important;\n  line-height: 24px !important;\n  margin: 28px 0 8px;\n  padding-bottom: 10px;\n  border-bottom: 1px solid #334155;\n}\n\n.note-to-mp h3 {\n  font-size: 18px;\n  font-weight: 400;\n  color: #cbd5e1 !important;\n  line-height: 24px !important;\n  margin: 28px 0 10px;\n  padding-bottom: 8px;\n  border-bottom: 1px solid #1e293b;\n}\n.note-to-mp h4 {\n  font-size: 18px;\n  font-weight: 400;\n  color: #1d1d1f !important;\n  line-height: 24px !important;\n  margin: 28px 0 18px;\n}\n\n.note-to-mp h5 {\n  font-size: 18px;\n  font-weight: 400;\n  color: #1d1d1f !important;\n  line-height: 24px !important;\n  margin: 28px 0 18px;\n}\n\n.note-to-mp h6 {\n  font-size: 18px;\n  font-weight: 400;\n  color: #1d1d1f !important;\n  line-height: 24px !important;\n  margin: 28px 0 18px;\n}\n\n\n.note-to-mp h4, .note-to-mp h5, .note-to-mp h6 {\n  font-size: 18px;\n  font-weight: 400;\n  color: #94a3b8 !important;\n  line-height: 24px !important;\n  margin: 28px 0 18px;\n}\n\n/* \u6BB5\u843D */\n.note-to-mp p {\n  margin: 18px 0 !important;\n  line-height: 1.7 !important;\n  color: #94a3b8 !important;\n  font-weight: 300;\n  text-align: left;\n}\n\n/* \u52A0\u7C97 */\n.note-to-mp strong {\n  font-weight: 500;\n  color: #22d3ee !important;\n}\n\n/* \u659C\u4F53 */\n.note-to-mp em {\n  font-style: italic;\n  color: #a855f7 !important;\n  font-weight: 300;\n}\n\n/* \u4E0B\u5212\u7EBF */\n.note-to-mp u {\n  text-decoration: none;\n  border-bottom: 1px solid #22d3ee;\n  padding-bottom: 1px;\n}\n\n/* \u94FE\u63A5 */\n.note-to-mp a {\n  color: #a855f7 !important;\n  text-decoration: none;\n  font-weight: 400;\n  word-break: break-all;\n}\n\n/* --- \u5217\u8868\u90E8\u5206 --- */\n.note-to-mp ul, .note-to-mp ol {\n  margin: 18px 0;\n  padding-left: 22px;\n}\n.note-to-mp ul { list-style-type: disc; }\n.note-to-mp ol { list-style-type: decimal; }\n\n.note-to-mp li {\n  margin: 10px 0;\n  line-height: 1.7 !important;\n  color: #94a3b8 !important;\n  font-weight: 300;\n}\n\n/* --- \u5F15\u7528\u90E8\u5206 --- */\n.note-to-mp blockquote {\n  margin: 30px 0;\n  padding: 20px;\n  background-color: rgba(34, 211, 238, 0.05) !important;\n  border-left: 2px solid #22d3ee;\n  border-radius: 0 4px 4px 0;\n  color: #cbd5e1 !important;\n  font-size: 15px;\n  line-height: 1.7 !important;\n  font-weight: 400;\n  font-style: normal;\n}\n\n/* --- \u4EE3\u7801\u5757\u90E8\u5206 --- */\n\n/* \u884C\u5185\u4EE3\u7801 */\n.note-to-mp code {\n  font-family: Menlo, Monaco, Consolas, "Courier New", monospace, sans-serif;\n  font-size: 14px;\n  padding: 2px 6px;\n  background-color: #1e293b !important;\n  color: #22d3ee !important;\n  border-radius: 4px;\n  font-weight: 400;\n}\n\n/* \u4EE3\u7801\u5757\u5916\u5C42\u5BB9\u5668 */\n.note-to-mp .code-section {\n  margin: 24px 0;\n  padding: 45px 20px 20px;\n  background-color: #020617 !important;\n  border-radius: 8px;\n  border: 1px solid #1e293b;\n  overflow-x: auto;\n  background-image:\n    radial-gradient(circle, #ff5f56 6px, transparent 7px),\n    radial-gradient(circle, #ffbd2e 6px, transparent 7px),\n    radial-gradient(circle, #27c93f 6px, transparent 7px),\n    linear-gradient(#0f172a, #0f172a);\n  background-size: 14px 14px, 14px 14px, 14px 14px, 100% 36px;\n  background-position: 15px 12px, 35px 12px, 55px 12px, 0 0;\n  background-repeat: no-repeat;\n  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);\n}\n\n.note-to-mp .code-section ul { display: none; }\n\n.note-to-mp .code-section pre {\n  margin: 0;\n  padding: 0;\n  background: transparent !important;\n  border: none;\n  line-height: 1.6 !important;\n  white-space: pre-wrap !important;\n  word-wrap: break-word !important;\n  word-break: break-all !important;\n}\n\n.note-to-mp .code-section code,\n.note-to-mp .code-section span {\n  background-color: transparent !important;\n  color: #22d3ee !important;\n  padding: 0;\n  font-family: Menlo, Monaco, Consolas, "Courier New", monospace, sans-serif;\n  font-size: 14px;\n  font-weight: 400;\n}\n\n/* \u56FE\u7247 */\n.note-to-mp img {\n  max-width: 100%;\n  height: auto;\n  display: block;\n  margin: 24px auto;\n  border-radius: 8px;\n  border: 1px solid #1e293b;\n  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);\n}\n\n/* \u8868\u683C */\n.note-to-mp table {\n  width: 100%;\n  margin: 24px 0;\n  border-collapse: collapse;\n  font-size: 15px;\n}\n.note-to-mp th {\n  background-color: #1e293b !important;\n  padding: 14px 18px;\n  text-align: left;\n  border: none;\n  font-weight: 500;\n  color: #22d3ee !important;\n  border-bottom: 1px solid #334155;\n}\n.note-to-mp td {\n  padding: 14px 18px;\n  border: none;\n  border-bottom: 1px solid #1e293b;\n  color: #94a3b8 !important;\n  font-weight: 300;\n}\n```\n';
+var __default10 = '```CSS\n/* \u5168\u5C40\u5C5E\u6027 */\n.note-to-mp {\n  max-width: 700px;\n  margin: 0 auto;\n  padding: 40px;\n  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", Arial, sans-serif;\n  font-size: 16px;\n  line-height: 1.7 !important;\n  color: #94a3b8 !important;\n  background-color: #0b1120 !important;\n  border-radius: 12px;\n  border: 1px solid #1e293b;\n  text-align: left !important;\n  word-wrap: break-word;\n  word-break: break-word;\n}\n\n/* --- \u6807\u9898\u90E8\u5206 --- */\n.note-to-mp h1 {\n  font-size: 18px;\n  font-weight: 400;\n  color: #22d3ee !important;\n  line-height: 24px !important;\n  margin: 28px 0 18px;\n  padding-left: 12px;\n  border-left: 4px solid #a855f7;\n}\n\n.note-to-mp h2 {\n  font-size: 18px;\n  font-weight: 400;\n  color: #e2e8f0 !important;\n  line-height: 24px !important;\n  margin: 28px 0 8px;\n  padding-bottom: 10px;\n  border-bottom: 1px solid #334155;\n}\n\n.note-to-mp h3 {\n  font-size: 18px;\n  font-weight: 400;\n  color: #cbd5e1 !important;\n  line-height: 24px !important;\n  margin: 28px 0 10px;\n  padding-bottom: 8px;\n  border-bottom: 1px solid #1e293b;\n}\n.note-to-mp h4 {\n  font-size: 18px;\n  font-weight: 400;\n  color: #1d1d1f !important;\n  line-height: 24px !important;\n  margin: 28px 0 18px;\n}\n\n.note-to-mp h5 {\n  font-size: 18px;\n  font-weight: 400;\n  color: #1d1d1f !important;\n  line-height: 24px !important;\n  margin: 28px 0 18px;\n}\n\n.note-to-mp h6 {\n  font-size: 18px;\n  font-weight: 400;\n  color: #1d1d1f !important;\n  line-height: 24px !important;\n  margin: 28px 0 18px;\n}\n\n\n.note-to-mp h4, .note-to-mp h5, .note-to-mp h6 {\n  font-size: 18px;\n  font-weight: 400;\n  color: #94a3b8 !important;\n  line-height: 24px !important;\n  margin: 28px 0 18px;\n}\n\n/* \u6BB5\u843D */\n.note-to-mp p {\n  margin: 18px 0 !important;\n  line-height: 1.7 !important;\n  color: #94a3b8 !important;\n  font-weight: 300;\n  text-align: left;\n}\n\n/* \u52A0\u7C97 */\n.note-to-mp strong {\n  font-weight: 500;\n  color: #22d3ee !important;\n}\n\n/* \u659C\u4F53 */\n.note-to-mp em {\n  font-style: italic;\n  color: #a855f7 !important;\n  font-weight: 300;\n}\n\n/* \u4E0B\u5212\u7EBF */\n.note-to-mp u {\n  text-decoration: none;\n  border-bottom: 1px solid #22d3ee;\n  padding-bottom: 1px;\n}\n\n/* \u94FE\u63A5 */\n.note-to-mp a {\n  color: #a855f7 !important;\n  text-decoration: none;\n  font-weight: 400;\n  word-break: break-all;\n}\n\n/* --- \u5217\u8868\u90E8\u5206 --- */\n.note-to-mp ul, .note-to-mp ol {\n  margin: 18px 0;\n  padding-left: 22px;\n}\n.note-to-mp ul { list-style-type: disc; }\n.note-to-mp ol { list-style-type: decimal; }\n\n.note-to-mp li {\n  margin: 10px 0;\n  line-height: 1.7 !important;\n  color: #94a3b8 !important;\n  font-weight: 300;\n}\n\n/* --- \u5F15\u7528\u90E8\u5206 --- */\n.note-to-mp blockquote {\n  margin: 30px 0;\n  padding: 20px;\n  background-color: rgba(34, 211, 238, 0.05) !important;\n  border-left: 2px solid #22d3ee;\n  border-radius: 0 4px 4px 0;\n  color: #cbd5e1 !important;\n  font-size: 15px;\n  line-height: 1.7 !important;\n  font-weight: 400;\n  font-style: normal;\n}\n\n/* --- \u4EE3\u7801\u5757\u90E8\u5206 --- */\n\n/* \u884C\u5185\u4EE3\u7801 */\n.note-to-mp code {\n  font-family: Menlo, Monaco, Consolas, "Courier New", monospace, sans-serif;\n  font-size: 14px;\n  padding: 2px 6px;\n  background-color: #1e293b !important;\n  color: #22d3ee !important;\n  border-radius: 4px;\n  font-weight: 400;\n}\n\n/* \u4EE3\u7801\u5757\u5916\u5C42\u5BB9\u5668 */\n.note-to-mp .code-section {\n  margin: 24px 0;\n  padding: 45px 20px 20px;\n  background-color: #020617 !important;\n  border-radius: 8px;\n  border: 1px solid #1e293b;\n  overflow-x: auto;\n  background-image:\n    radial-gradient(circle, #ff5f56 6px, transparent 7px),\n    radial-gradient(circle, #ffbd2e 6px, transparent 7px),\n    radial-gradient(circle, #27c93f 6px, transparent 7px),\n    linear-gradient(#0f172a, #0f172a);\n  background-size: 14px 14px, 14px 14px, 14px 14px, 100% 36px;\n  background-position: 15px 12px, 35px 12px, 55px 12px, 0 0;\n  background-repeat: no-repeat;\n  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);\n}\n\n.note-to-mp .code-section ul { display: none; }\n\n.note-to-mp .code-section pre {\n  margin: 0;\n  padding: 0;\n  background: transparent !important;\n  border: none;\n  line-height: 1.6 !important;\n  white-space: pre-wrap !important;\n  word-wrap: break-word !important;\n  word-break: break-all !important;\n}\n\n.note-to-mp .code-section code,\n.note-to-mp .code-section span {\n  background-color: transparent !important;\n  color: #22d3ee !important;\n  padding: 0;\n  font-family: Menlo, Monaco, Consolas, "Courier New", monospace, sans-serif;\n  font-size: 14px;\n  font-weight: 400;\n}\n\n/* \u56FE\u7247 */\n.note-to-mp img {\n  max-width: 100%;\n  height: auto;\n  display: block;\n  margin: 24px auto;\n  border-radius: 8px;\n  border: 1px solid #1e293b;\n  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);\n}\n\n/* \u8868\u683C */\n.note-to-mp table {\n  width: 100%;\n  margin: 24px 0;\n  border-collapse: collapse;\n  font-size: 15px;\n}\n.note-to-mp th {\n  background-color: #1e293b !important;\n  padding: 14px 18px;\n  text-align: left;\n  border: none;\n  font-weight: 500;\n  color: #22d3ee !important;\n  border-bottom: 1px solid #334155;\n}\n.note-to-mp td {\n  padding: 14px 18px;\n  border: none;\n  border-bottom: 1px solid #1e293b;\n  color: #94a3b8 !important;\n  font-weight: 300;\n}\n```\n';
+
+// themes/蓝白案例.md
+var __default11 = '```css\n.note-to-mp {\n  max-width: 677px;\n  margin: 0 auto;\n  padding: 0 20px 32px;\n  background: #ffffff !important;\n  color: #374151 !important;\n  font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;\n  font-size: 16px;\n  line-height: 1.85 !important;\n  letter-spacing: 0.02em;\n  overflow-x: hidden;\n  word-break: break-word;\n}\n\n.note-to-mp p {\n  margin: 0 0 20px !important;\n  color: #374151 !important;\n  font-size: 16px;\n  line-height: 1.85 !important;\n  text-align: justify !important;\n}\n\n.note-to-mp h1 {\n  margin: 0 0 34px;\n  padding: 28px 24px 32px;\n  border-radius: 18px;\n  background: linear-gradient(145deg, #1565c0 0%, #0d47a1 100%) !important;\n  color: #ffffff !important;\n  font-size: 26px;\n  font-weight: 760;\n  line-height: 1.4 !important;\n  letter-spacing: 0;\n}\n\n.note-to-mp h2 {\n  margin: 48px 0 24px !important;\n  padding: 0 0 18px;\n  border-bottom: 1px solid #dbeafe;\n  color: #111827 !important;\n  font-size: 20px;\n  font-weight: 760;\n  line-height: 1.4 !important;\n}\n\n.note-to-mp .wechatpb-heading-label {\n  display: block;\n  margin: 0 0 6px;\n  color: #1565c0 !important;\n  font-size: 10px;\n  font-weight: 760;\n  line-height: 1.2 !important;\n  letter-spacing: 3px;\n}\n\n.note-to-mp h3 {\n  margin: 32px 0 18px !important;\n  color: #111827 !important;\n  font-size: 17px;\n  font-weight: 720;\n  line-height: 1.5 !important;\n}\n\n.note-to-mp h4,\n.note-to-mp h5,\n.note-to-mp h6 {\n  margin: 28px 0 14px !important;\n  color: #1f2937 !important;\n  font-size: 16px;\n  font-weight: 700;\n  line-height: 1.55 !important;\n}\n\n.note-to-mp strong {\n  padding: 0 2px;\n  background: linear-gradient(transparent 62%, #bfdbfe 62%);\n  color: #111827 !important;\n  font-weight: 700;\n}\n\n.note-to-mp em,\n.note-to-mp a {\n  color: #1565c0 !important;\n}\n\n.note-to-mp em {\n  font-style: normal;\n  font-weight: 650;\n}\n\n.note-to-mp a {\n  border-bottom: 1px solid #93c5fd;\n  text-decoration: none;\n}\n\n.note-to-mp blockquote {\n  margin: 0 0 24px !important;\n  padding: 17px 18px;\n  border: none;\n  border-left: 4px solid #1565c0;\n  border-radius: 0 10px 10px 0;\n  background: #f5f9ff !important;\n  color: #475569 !important;\n}\n\n.note-to-mp blockquote p {\n  margin: 0 !important;\n  color: #475569 !important;\n  font-size: 15px;\n  line-height: 1.75 !important;\n}\n\n.note-to-mp ul,\n.note-to-mp ol {\n  margin: 0 0 24px;\n  padding-left: 24px;\n  color: #374151 !important;\n  line-height: 1.85 !important;\n}\n\n.note-to-mp li {\n  margin: 7px 0;\n}\n\n.note-to-mp li::marker {\n  color: #1565c0;\n  font-weight: 800;\n}\n\n.note-to-mp code {\n  padding: 2px 6px;\n  border-radius: 4px;\n  background: #eff6ff !important;\n  color: #0d47a1 !important;\n  font-family: Menlo, Monaco, Consolas, monospace;\n  font-size: 14px;\n}\n\n.note-to-mp .code-section {\n  margin: 0 0 24px;\n  padding: 18px;\n  border-radius: 10px;\n  background: #172033 !important;\n  overflow-x: auto;\n}\n\n.note-to-mp .code-section pre {\n  margin: 0;\n  padding: 0;\n  background: transparent !important;\n  white-space: pre-wrap !important;\n  word-break: break-all !important;\n}\n\n.note-to-mp .code-section code {\n  display: block;\n  padding: 0;\n  background: transparent !important;\n  color: #bfdbfe !important;\n}\n\n.note-to-mp img {\n  width: 100%;\n  max-width: 100%;\n  height: auto;\n  display: block;\n  margin: 28px auto;\n  border: 1px solid #dbeafe;\n  border-radius: 12px;\n}\n\n.note-to-mp hr {\n  height: 1px;\n  margin: 44px 0 30px;\n  border: none;\n  background: #dbeafe;\n}\n```\n';
+
+// themes/绿白清简.md
+var __default12 = '```css\n.note-to-mp {\n  max-width: 677px;\n  margin: 0 auto;\n  padding: 0 20px 32px;\n  background: #ffffff !important;\n  color: #334155 !important;\n  font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;\n  font-size: 16px;\n  line-height: 1.88 !important;\n  letter-spacing: 0.03em;\n  overflow-x: hidden;\n  word-break: break-word;\n}\n\n.note-to-mp p {\n  margin: 0 0 21px !important;\n  color: #334155 !important;\n  font-size: 16px;\n  line-height: 1.88 !important;\n  text-align: justify !important;\n}\n\n.note-to-mp h1 {\n  margin: 0 0 34px;\n  padding: 28px 24px 30px;\n  border: 1px solid #c8f0d2;\n  border-radius: 18px;\n  background: linear-gradient(135deg, #e9faee 0%, #ffffff 72%) !important;\n  color: #015f25 !important;\n  font-size: 26px;\n  font-weight: 650;\n  line-height: 1.4 !important;\n  letter-spacing: 0;\n}\n\n.note-to-mp h2 {\n  margin: 48px 0 24px !important;\n  padding: 0 0 0 12px;\n  border-left: 4px solid #01a539;\n  color: #015f25 !important;\n  font-size: 20px;\n  font-weight: 650;\n  line-height: 1.4 !important;\n}\n\n.note-to-mp .wechatpb-heading-label {\n  display: block;\n  margin: 0 0 6px;\n  color: #01a539 !important;\n  font-size: 10px;\n  font-weight: 650;\n  line-height: 1.2 !important;\n  letter-spacing: 3px;\n}\n\n.note-to-mp h3 {\n  margin: 32px 0 18px !important;\n  color: #015f25 !important;\n  font-size: 17px;\n  font-weight: 650;\n  line-height: 1.5 !important;\n}\n\n.note-to-mp h4,\n.note-to-mp h5,\n.note-to-mp h6 {\n  margin: 28px 0 14px !important;\n  color: #015f25 !important;\n  font-size: 16px;\n  font-weight: 620;\n  line-height: 1.55 !important;\n}\n\n.note-to-mp strong {\n  padding: 0 2px;\n  background: linear-gradient(transparent 64%, rgba(1, 165, 57, 0.22) 64%);\n  color: #111827 !important;\n  font-weight: 650;\n}\n\n.note-to-mp em,\n.note-to-mp a {\n  color: #018a31 !important;\n}\n\n.note-to-mp em {\n  font-style: normal;\n  font-weight: 620;\n}\n\n.note-to-mp a {\n  border-bottom: 1px solid #84d99d;\n  text-decoration: none;\n}\n\n.note-to-mp blockquote {\n  margin: 0 0 24px !important;\n  padding: 17px 18px;\n  border: none;\n  border-left: 4px solid #01a539;\n  border-radius: 0 10px 10px 0;\n  background: #f2fff5 !important;\n  color: #475569 !important;\n}\n\n.note-to-mp blockquote p {\n  margin: 0 !important;\n  color: #475569 !important;\n  font-size: 15px;\n  line-height: 1.75 !important;\n}\n\n.note-to-mp ul,\n.note-to-mp ol {\n  margin: 0 0 24px;\n  padding-left: 24px;\n  color: #475569 !important;\n  line-height: 1.85 !important;\n}\n\n.note-to-mp li {\n  margin: 7px 0;\n}\n\n.note-to-mp li::marker {\n  color: #01a539;\n  font-weight: 700;\n}\n\n.note-to-mp code {\n  padding: 2px 6px;\n  border-radius: 4px;\n  background: #e9faee !important;\n  color: #015f25 !important;\n  font-family: Menlo, Monaco, Consolas, monospace;\n  font-size: 14px;\n}\n\n.note-to-mp .code-section {\n  margin: 0 0 24px;\n  padding: 18px;\n  border: 1px solid #0b6b2d;\n  border-radius: 10px;\n  background: #052614 !important;\n  overflow-x: auto;\n}\n\n.note-to-mp .code-section pre {\n  margin: 0;\n  padding: 0;\n  background: transparent !important;\n  white-space: pre-wrap !important;\n  word-break: break-all !important;\n}\n\n.note-to-mp .code-section code {\n  display: block;\n  padding: 0;\n  background: transparent !important;\n  color: #d9ffd7 !important;\n}\n\n.note-to-mp img {\n  width: 100%;\n  max-width: 100%;\n  height: auto;\n  display: block;\n  margin: 28px auto;\n  border: 1px solid #d8f4df;\n  border-radius: 12px;\n}\n\n.note-to-mp hr {\n  height: 1px;\n  margin: 44px 0 30px;\n  border: none;\n  background: #d8f4df;\n}\n```\n';
 
 // src/builtin-themes.ts
+var DEFAULT_BUILTIN_THEME = "\u7EFF\u767D\u6E05\u7B80";
+var BUILTIN_THEME_REFINEMENT = `
+.note-to-mp {
+  width: 100%;
+  max-width: 677px;
+  margin-left: auto;
+  margin-right: auto;
+  padding-left: 20px;
+  padding-right: 20px;
+  box-sizing: border-box;
+  font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  font-size: 16px;
+  line-height: 1.8 !important;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.note-to-mp p {
+  margin-top: 0;
+  margin-bottom: 20px !important;
+  font-size: 16px;
+  line-height: 1.85 !important;
+}
+
+.note-to-mp h1 {
+  margin-top: 0;
+  margin-bottom: 32px;
+  font-size: 26px;
+  line-height: 1.4 !important;
+}
+
+.note-to-mp h2 {
+  margin-top: 44px !important;
+  margin-bottom: 22px !important;
+  font-size: 20px;
+  line-height: 1.45 !important;
+}
+
+.note-to-mp h3 {
+  margin-top: 30px !important;
+  margin-bottom: 16px !important;
+  font-size: 17px;
+  line-height: 1.5 !important;
+}
+
+.note-to-mp h4,
+.note-to-mp h5,
+.note-to-mp h6 {
+  margin-top: 26px !important;
+  margin-bottom: 14px !important;
+  font-size: 16px;
+  line-height: 1.55 !important;
+}
+
+.note-to-mp blockquote,
+.note-to-mp ul,
+.note-to-mp ol,
+.note-to-mp .code-section {
+  margin-top: 0;
+  margin-bottom: 24px !important;
+}
+
+.note-to-mp blockquote p:last-child,
+.note-to-mp li p:last-child {
+  margin-bottom: 0 !important;
+}
+
+.note-to-mp img {
+  max-width: 100%;
+  height: auto;
+  box-sizing: border-box;
+}
+`.trim();
 var BUILTIN_THEME_DOCUMENTS = [
-  { name: "Apple\u6781\u7B80-\u9ED1", content: Apple_default },
-  { name: "Nikkei-\u7EA2", content: Nikkei_default },
-  { name: "\u4E66\u520A\u5C45\u4E2D-\u9152\u7EA2", content: __default },
-  { name: "\u5C42\u7EA7\u4E66\u7B7E-\u84DD", content: __default2 },
-  { name: "\u62A5\u520A\u5939\u7EBF-\u7EA2", content: __default3 },
-  { name: "\u6D41\u5149\u5E95\u7EBF-\u91D1\u84DD", content: __default4 },
-  { name: "\u6D6E\u96D5\u5361\u7247-\u975B\u84DD", content: __default5 },
-  { name: "\u6E05\u6C34\u6781\u7B80-\u9ED1", content: __default6 },
-  { name: "\u6E10\u9690\u5E95\u7EBF-\u7C89\u7D2B", content: __default7 },
-  { name: "\u80F6\u56CA\u836F\u4E38-\u7EFF", content: __default8 },
-  { name: "\u8367\u5149\u9A6C\u514B-\u7EFF", content: __default9 },
-  { name: "\u8367\u5149\u9A6C\u514B-\u84DD", content: __default10 },
-  { name: "\u9713\u8679\u6697\u5E95-\u9752\u7D2B", content: __default11 }
+  {
+    name: "\u7EFF\u767D\u6E05\u7B80",
+    content: __default12,
+    description: "\u7EFF\u8272\u4E0E\u767D\u8272\u7684\u54C1\u724C\u7559\u767D\uFF0C\u9002\u5408\u6559\u7A0B\u3001\u65B9\u6CD5\u8BBA\u4E0E\u65E5\u5E38\u957F\u6587",
+    accent: "#01a539",
+    legacyNames: ["Zhouxing\xB7\u7EFF\u767D"],
+    headingLabel: "TITEL"
+  },
+  {
+    name: "\u84DD\u767D\u6848\u4F8B",
+    content: __default11,
+    description: "\u84DD\u767D\u5361\u7247\u4E0E\u6570\u636E\u611F\u6807\u9898\uFF0C\u9002\u5408\u6848\u4F8B\u62C6\u89E3\u548C\u5DE5\u5177\u6559\u7A0B",
+    accent: "#1565c0",
+    legacyNames: ["Tata\xB7\u84DD\u767D"],
+    headingLabel: "TITEL"
+  },
+  {
+    name: "\u58A8\u767D\u6781\u7B80",
+    content: Apple_default,
+    description: "\u514B\u5236\u7684\u9ED1\u767D\u7070\u5C42\u7EA7\uFF0C\u9002\u5408\u901A\u7528\u89C2\u70B9\u548C\u4EA7\u54C1\u6587\u7AE0",
+    accent: "#1d1d1f",
+    legacyNames: ["Apple\u6781\u7B80-\u9ED1"]
+  },
+  {
+    name: "\u8D64\u7EA2\u62A5\u520A",
+    content: Nikkei_default,
+    description: "\u9AD8\u5BF9\u6BD4\u8D64\u7EA2\u62A5\u520A\u611F\uFF0C\u9002\u5408\u65B0\u95FB\u3001\u8D8B\u52BF\u548C\u8BC4\u8BBA",
+    accent: "#c41230",
+    legacyNames: ["Nikkei-\u7EA2"]
+  },
+  {
+    name: "\u9152\u7EA2\u4E66\u520A",
+    content: __default,
+    description: "\u9152\u7EA2\u8272\u4E66\u520A\u6C14\u8D28\uFF0C\u9002\u5408\u8BBF\u8C08\u3001\u4EBA\u7269\u548C\u6587\u5316\u5185\u5BB9",
+    accent: "#9f1239",
+    legacyNames: ["\u4E66\u520A\u5C45\u4E2D-\u9152\u7EA2"]
+  },
+  {
+    name: "\u975B\u84DD\u4E66\u7B7E",
+    content: __default2,
+    description: "\u975B\u84DD\u5C42\u7EA7\u4E66\u7B7E\uFF0C\u9002\u5408\u7ED3\u6784\u6E05\u6670\u7684\u77E5\u8BC6\u6559\u7A0B",
+    accent: "#2563eb",
+    legacyNames: ["\u5C42\u7EA7\u4E66\u7B7E-\u84DD"]
+  },
+  {
+    name: "\u8D64\u7EA2\u5939\u7EBF",
+    content: __default3,
+    description: "\u7EA2\u8272\u5939\u7EBF\u4E0E\u7EB8\u9762\u611F\uFF0C\u9002\u5408\u89C2\u70B9\u3001\u4E13\u680F\u548C\u590D\u76D8",
+    accent: "#c9302c",
+    legacyNames: ["\u62A5\u520A\u5939\u7EBF-\u7EA2"]
+  },
+  {
+    name: "\u975B\u84DD\u6D6E\u96D5",
+    content: __default4,
+    description: "\u975B\u84DD\u5361\u7247\u4E0E\u8F7B\u6D6E\u96D5\uFF0C\u9002\u5408\u6E05\u5355\u3001\u6846\u67B6\u548C\u6B65\u9AA4\u5185\u5BB9",
+    accent: "#4338ca",
+    legacyNames: ["\u6D6E\u96D5\u5361\u7247-\u975B\u84DD"]
+  },
+  {
+    name: "\u6E05\u58A8\u7559\u767D",
+    content: __default5,
+    description: "\u6E05\u6DE1\u58A8\u8272\u4E0E\u5927\u7559\u767D\uFF0C\u9002\u5408\u968F\u7B14\u548C\u957F\u7BC7\u9605\u8BFB",
+    accent: "#4a4a4a",
+    legacyNames: ["\u6E05\u6C34\u6781\u7B80-\u9ED1"]
+  },
+  {
+    name: "\u7C89\u7D2B\u6E10\u9690",
+    content: __default6,
+    description: "\u7C89\u7D2B\u6E10\u53D8\u4E0E\u67D4\u548C\u5206\u9694\uFF0C\u9002\u5408\u751F\u6D3B\u65B9\u5F0F\u548C\u8F7B\u5185\u5BB9",
+    accent: "#db2777",
+    legacyNames: ["\u6E10\u9690\u5E95\u7EBF-\u7C89\u7D2B"]
+  },
+  {
+    name: "\u9752\u7EFF\u80F6\u56CA",
+    content: __default7,
+    description: "\u9752\u7EFF\u8272\u80F6\u56CA\u6807\u9898\uFF0C\u9002\u5408\u6280\u5DE7\u3001\u95EE\u7B54\u548C\u884C\u52A8\u6E05\u5355",
+    accent: "#10b981",
+    legacyNames: ["\u80F6\u56CA\u836F\u4E38-\u7EFF"]
+  },
+  {
+    name: "\u7EFF\u8367\u6807\u8BB0",
+    content: __default8,
+    description: "\u7EFF\u8272\u8367\u5149\u6807\u8BB0\uFF0C\u9002\u5408\u91CD\u70B9\u8F83\u591A\u7684\u6559\u7A0B\u548C\u7B14\u8BB0",
+    accent: "#34d399",
+    legacyNames: ["\u8367\u5149\u9A6C\u514B-\u7EFF"]
+  },
+  {
+    name: "\u84DD\u8367\u6807\u8BB0",
+    content: __default9,
+    description: "\u84DD\u8272\u9AD8\u4EAE\u6807\u8BB0\uFF0C\u9002\u5408\u5DE5\u5177\u3001\u6548\u7387\u548C\u6280\u672F\u6587\u7AE0",
+    accent: "#0015e4",
+    legacyNames: ["\u8367\u5149\u9A6C\u514B-\u84DD"]
+  },
+  {
+    name: "\u9752\u7D2B\u9713\u8679",
+    content: __default10,
+    description: "\u9752\u7D2B\u6697\u8272\u9713\u8679\uFF0C\u9002\u5408\u79D1\u6280\u3001\u672A\u6765\u611F\u548C\u4EE3\u7801\u5185\u5BB9",
+    accent: "#22d3ee",
+    legacyNames: ["\u9713\u8679\u6697\u5E95-\u9752\u7D2B"]
+  }
 ];
 
 // src/utils/theme-manager.ts
@@ -19516,6 +19864,7 @@ var ThemeManager = class {
   constructor(app) {
     this.themes = [];
     this.themesFolder = "";
+    this.customThemesEnabled = false;
     this.app = app;
   }
   /**
@@ -19524,18 +19873,27 @@ var ThemeManager = class {
   setThemesFolder(folderPath) {
     this.themesFolder = folderPath;
   }
+  setCustomThemesEnabled(enabled) {
+    this.customThemesEnabled = enabled;
+  }
   /**
    * 加载所有CSS主题
    */
   async loadThemes() {
-    this.themes = BUILTIN_THEME_DOCUMENTS.map(({ name, content }) => ({
+    this.themes = BUILTIN_THEME_DOCUMENTS.map(({ name, content, description, accent, legacyNames, headingLabel }) => ({
       name,
       filename: name,
-      css: this.extractCss(content),
+      css: `${this.extractCss(content)}
+
+${BUILTIN_THEME_REFINEMENT}`,
       path: `builtin:${name}`,
-      builtin: true
+      builtin: true,
+      description,
+      accent,
+      aliases: legacyNames,
+      headingLabel
     })).filter((theme) => theme.css.length > 0);
-    if (!this.themesFolder) {
+    if (!this.customThemesEnabled || !this.themesFolder) {
       return this.themes;
     }
     try {
@@ -19582,8 +19940,9 @@ var ThemeManager = class {
           }
         }
       }
-      if (this.themes.length > 0) {
-        new import_obsidian3.Notice(`\u6210\u529F\u52A0\u8F7D ${this.themes.length} \u4E2A\u4E3B\u9898`, 3e3);
+      const customThemeCount = this.themes.filter((theme) => !theme.builtin).length;
+      if (customThemeCount > 0) {
+        new import_obsidian3.Notice(`\u5DF2\u52A0\u8F7D ${customThemeCount} \u4E2A\u81EA\u5B9A\u4E49\u4E3B\u9898`, 3e3);
       } else {
         new import_obsidian3.Notice(`\u6587\u4EF6\u5939 "${cleanPath}" \u4E2D\u6CA1\u6709\u627E\u5230 CSS \u6587\u4EF6\u6216\u5305\u542B CSS \u4EE3\u7801\u5757\u7684 MD \u6587\u4EF6`, 5e3);
       }
@@ -19601,7 +19960,10 @@ var ThemeManager = class {
    * 根据名称获取主题
    */
   getTheme(name) {
-    return this.themes.find((t) => t.name === name || t.filename === name);
+    return this.themes.find((t) => {
+      var _a;
+      return t.name === name || t.filename === name || ((_a = t.aliases) == null ? void 0 : _a.includes(name));
+    });
   }
   /**
    * 获取所有主题名称列表
@@ -19609,16 +19971,15 @@ var ThemeManager = class {
   getThemeNames() {
     return this.themes.map((t) => t.name);
   }
+  getThemes() {
+    return this.themes;
+  }
   /**
    * 获取默认主题
    */
   getDefaultTheme() {
-    return {
-      name: "\u9ED8\u8BA4",
-      filename: "default",
-      css: "",
-      path: ""
-    };
+    var _a;
+    return (_a = this.getTheme(DEFAULT_BUILTIN_THEME)) != null ? _a : this.themes[0];
   }
 };
 
@@ -19907,7 +20268,7 @@ var PublisherView = class extends import_obsidian5.ItemView {
     this.coverImage = null;
     this.publishProgress = /* @__PURE__ */ new Map();
     this.isPublishing = false;
-    this.selectedTheme = "\u9ED8\u8BA4";
+    this.selectedTheme = "\u7EFF\u767D\u6E05\u7B80";
     this.publishSummary = null;
     this.plugin = plugin2;
     this.themeManager = new ThemeManager(this.app);
@@ -19917,17 +20278,25 @@ var PublisherView = class extends import_obsidian5.ItemView {
     return VIEW_TYPE_PUBLISHER;
   }
   getDisplayText() {
-    return "\u5FAE\u4FE1\u53D1\u5E03";
+    return "WeChatPB";
   }
   getIcon() {
     return "message-circle";
   }
   async onOpen() {
+    var _a;
     const container = this.containerEl.children[1];
     container.empty();
     container.addClass("wechat-multi-publisher-view");
     this.themeManager.setThemesFolder(this.plugin.settings.themesFolder);
+    this.themeManager.setCustomThemesEnabled(this.plugin.settings.customThemesEnabled);
     await this.themeManager.loadThemes();
+    const initialTheme = (_a = this.themeManager.getTheme(this.plugin.settings.defaultTheme)) != null ? _a : this.themeManager.getDefaultTheme();
+    this.selectedTheme = initialTheme.name;
+    if (this.plugin.settings.defaultTheme !== initialTheme.name) {
+      this.plugin.settings.defaultTheme = initialTheme.name;
+      await this.plugin.saveSettings();
+    }
     this.render();
   }
   async onClose() {
@@ -19936,7 +20305,7 @@ var PublisherView = class extends import_obsidian5.ItemView {
     const container = this.containerEl.children[1];
     container.empty();
     const header = container.createDiv({ cls: "publisher-header" });
-    header.createEl("h3", { text: "\u5FAE\u4FE1\u516C\u4F17\u53F7\u53D1\u5E03" });
+    header.createEl("h3", { text: "WeChatPB \xB7 \u5FAE\u4FE1\u516C\u4F17\u53F7\u53D1\u5E03" });
     this.renderAccountSelection(container);
     this.renderCoverUpload(container);
     this.renderThemeSelection(container);
@@ -20004,24 +20373,27 @@ var PublisherView = class extends import_obsidian5.ItemView {
     }
   }
   renderThemeSelection(container) {
+    var _a, _b;
     const section = container.createDiv({ cls: "theme-selection-section" });
     section.createEl("h4", { text: "\u6392\u7248\u6837\u5F0F" });
     const controlRow = section.createDiv({ cls: "theme-control-row" });
     const select = controlRow.createEl("select", { cls: "theme-select" });
-    const defaultOption = select.createEl("option", { value: "\u9ED8\u8BA4", text: "\u9ED8\u8BA4" });
-    if (this.selectedTheme === "\u9ED8\u8BA4") {
-      defaultOption.selected = true;
+    const themes = this.themeManager.getThemes();
+    const builtinGroup = select.createEl("optgroup", { attr: { label: "Memoria \u5185\u7F6E\u6392\u7248" } });
+    const customThemes = themes.filter((theme) => !theme.builtin);
+    const customGroup = customThemes.length > 0 ? select.createEl("optgroup", { attr: { label: "\u81EA\u5B9A\u4E49\u6392\u7248" } }) : null;
+    for (const theme of themes) {
+      const parent = theme.builtin ? builtinGroup : customGroup;
+      if (!parent) continue;
+      const option = parent.createEl("option", { value: theme.name, text: theme.name });
+      option.selected = this.selectedTheme === theme.name;
     }
-    const themeNames = this.themeManager.getThemeNames();
-    for (const themeName of themeNames) {
-      const option = select.createEl("option", { value: themeName, text: themeName });
-      if (this.selectedTheme === themeName) {
-        option.selected = true;
-      }
-    }
-    select.onchange = () => {
+    select.onchange = async () => {
       this.selectedTheme = select.value;
+      this.plugin.settings.defaultTheme = this.selectedTheme;
+      await this.plugin.saveSettings();
       new import_obsidian5.Notice(`\u5DF2\u9009\u62E9\u6837\u5F0F\uFF1A${this.selectedTheme}`);
+      this.render();
     };
     const refreshBtn = controlRow.createEl("button", {
       text: "\u5237\u65B0",
@@ -20029,17 +20401,21 @@ var PublisherView = class extends import_obsidian5.ItemView {
     });
     refreshBtn.onclick = async () => {
       this.themeManager.setThemesFolder(this.plugin.settings.themesFolder);
+      this.themeManager.setCustomThemesEnabled(this.plugin.settings.customThemesEnabled);
       await this.themeManager.loadThemes();
       new import_obsidian5.Notice("\u4E3B\u9898\u5217\u8868\u5DF2\u5237\u65B0");
       this.render();
     };
-    if (themeNames.length === 0 && this.plugin.settings.themesFolder) {
-      section.createDiv({ cls: "theme-hint", text: "CSS \u6587\u4EF6\u5939\u4E2D\u672A\u627E\u5230\u4E3B\u9898\uFF0C\u8BF7\u70B9\u51FB\u201C\u5237\u65B0\u201D\u91CD\u65B0\u52A0\u8F7D" });
-    } else if (!this.plugin.settings.themesFolder) {
-      section.createDiv({ cls: "theme-hint", text: "\u53EF\u5728\u8BBE\u7F6E\u4E2D\u914D\u7F6E\u81EA\u5B9A\u4E49 CSS \u6587\u4EF6\u5939" });
-    } else if (themeNames.length > 0) {
-      section.createDiv({ cls: "theme-hint", text: `\u5DF2\u52A0\u8F7D ${themeNames.length} \u4E2A\u4E3B\u9898` });
-    }
+    const selected = this.themeManager.getTheme(this.selectedTheme);
+    const themeHint = section.createDiv({ cls: "theme-hint" });
+    themeHint.createSpan({ cls: "theme-color-dot", attr: { style: `--theme-accent: ${(_a = selected == null ? void 0 : selected.accent) != null ? _a : "#64748b"}` } });
+    themeHint.createSpan({
+      text: (_b = selected == null ? void 0 : selected.description) != null ? _b : "Memoria \u5185\u7F6E\u6392\u7248\u5DF2\u81EA\u52A8\u52A0\u8F7D\uFF0C\u65E0\u9700\u8BBE\u7F6E\u672C\u5730\u6587\u4EF6\u5939"
+    });
+    section.createDiv({
+      cls: "theme-library-hint",
+      text: `Memoria \u5DF2\u5185\u7F6E ${themes.filter((theme) => theme.builtin).length} \u5957\u6392\u7248${customThemes.length > 0 ? `\uFF0C\u53E6\u52A0\u8F7D ${customThemes.length} \u5957\u81EA\u5B9A\u4E49\u6392\u7248` : "\uFF0C\u5F00\u7BB1\u5373\u7528"}`
+    });
   }
   renderCoverUpload(container) {
     const section = container.createDiv({ cls: "cover-upload-section" });
@@ -20172,7 +20548,7 @@ var PublisherView = class extends import_obsidian5.ItemView {
     }
   }
   async handlePreview() {
-    var _a, _b, _c;
+    var _a, _b, _c, _d;
     let activeView = this.app.workspace.getActiveViewOfType(import_obsidian5.MarkdownView);
     if (!activeView) {
       const leaves = this.app.workspace.getLeavesOfType("markdown");
@@ -20191,21 +20567,16 @@ var PublisherView = class extends import_obsidian5.ItemView {
     }
     if (this.plugin.settings.excludeFrontmatter) content = this.removeFrontmatter(content);
     content = await this.processImageLinks(content, activeView);
-    let customCSS = "";
-    if (this.selectedTheme !== "\u9ED8\u8BA4") {
-      const theme = this.themeManager.getTheme(this.selectedTheme);
-      if (theme) {
-        customCSS = theme.css;
-      }
-    }
-    const html = MarkedFormatter.markdownToHtmlSync(content, customCSS);
-    const title = ((_a = activeView.file) == null ? void 0 : _a.basename) || "\u65E0\u6807\u9898";
-    const exportDir = ((_c = (_b = activeView.file) == null ? void 0 : _b.parent) == null ? void 0 : _c.path) || "";
+    const theme = (_a = this.themeManager.getTheme(this.selectedTheme)) != null ? _a : this.themeManager.getDefaultTheme();
+    const customCSS = theme.css;
+    const html = MarkedFormatter.markdownToHtmlSync(content, customCSS, { headingLabel: theme.headingLabel });
+    const title = ((_b = activeView.file) == null ? void 0 : _b.basename) || "\u65E0\u6807\u9898";
+    const exportDir = ((_d = (_c = activeView.file) == null ? void 0 : _c.parent) == null ? void 0 : _d.path) || "";
     const previewModal = new PreviewModal(this.app, html, title, exportDir);
     previewModal.open();
   }
   async handleExportLongImage() {
-    var _a, _b, _c, _d, _e;
+    var _a, _b, _c, _d, _e, _f;
     let activeView = this.app.workspace.getActiveViewOfType(import_obsidian5.MarkdownView);
     if (!activeView) {
       activeView = (_b = (_a = this.app.workspace.getLeavesOfType("markdown")[0]) == null ? void 0 : _a.view) != null ? _b : null;
@@ -20221,13 +20592,13 @@ var PublisherView = class extends import_obsidian5.ItemView {
     }
     if (this.plugin.settings.excludeFrontmatter) content = this.removeFrontmatter(content);
     content = await this.processImageLinks(content, activeView);
-    const theme = this.selectedTheme === "\u9ED8\u8BA4" ? void 0 : this.themeManager.getTheme(this.selectedTheme);
-    const html = MarkedFormatter.markdownToHtmlSync(content, (theme == null ? void 0 : theme.css) || "");
+    const theme = (_c = this.themeManager.getTheme(this.selectedTheme)) != null ? _c : this.themeManager.getDefaultTheme();
+    const html = MarkedFormatter.markdownToHtmlSync(content, theme.css, { headingLabel: theme.headingLabel });
     const modal = new PreviewModal(
       this.app,
       html,
-      ((_c = activeView.file) == null ? void 0 : _c.basename) || "\u65E0\u6807\u9898",
-      ((_e = (_d = activeView.file) == null ? void 0 : _d.parent) == null ? void 0 : _e.path) || ""
+      ((_d = activeView.file) == null ? void 0 : _d.basename) || "\u65E0\u6807\u9898",
+      ((_f = (_e = activeView.file) == null ? void 0 : _e.parent) == null ? void 0 : _f.path) || ""
     );
     try {
       const path = await modal.exportLongImage();
@@ -20339,7 +20710,7 @@ var PublisherView = class extends import_obsidian5.ItemView {
     return content;
   }
   async handlePublish() {
-    var _a;
+    var _a, _b;
     let activeView = this.app.workspace.getActiveViewOfType(import_obsidian5.MarkdownView);
     if (!activeView) {
       const leaves = this.app.workspace.getLeavesOfType("markdown");
@@ -20369,14 +20740,9 @@ var PublisherView = class extends import_obsidian5.ItemView {
       });
     }
     this.render();
-    let customCSS = "";
-    if (this.selectedTheme !== "\u9ED8\u8BA4") {
-      const theme = this.themeManager.getTheme(this.selectedTheme);
-      if (theme) {
-        customCSS = theme.css;
-      }
-    }
-    const htmlContent = MarkedFormatter.markdownToHtmlSync(content, customCSS);
+    const theme = (_b = this.themeManager.getTheme(this.selectedTheme)) != null ? _b : this.themeManager.getDefaultTheme();
+    const customCSS = theme.css;
+    const htmlContent = MarkedFormatter.markdownToHtmlSync(content, customCSS, { headingLabel: theme.headingLabel });
     const accountIds = Array.from(this.selectedAccountIds);
     const maxConcurrent = this.plugin.settings.maxConcurrent;
     let successCount = 0;
@@ -20870,6 +21236,105 @@ var AccountModal = class extends import_obsidian6.Modal {
   }
 };
 
+// src/custom-theme-guide.ts
+var CUSTOM_THEME_AI_GUIDE = `\u8BF7\u4E3A WeChatPB \u8BBE\u8BA1\u4E00\u5957\u5FAE\u4FE1\u516C\u4F17\u53F7\u957F\u6587 CSS \u6392\u7248\u3002
+
+\u8BF7\u4E25\u683C\u9075\u5B88\u4EE5\u4E0B\u89C4\u8303\uFF1A
+1. \u53EA\u8F93\u51FA\u4E00\u4E2A \`\`\`css \u4EE3\u7801\u5757\uFF0C\u4E0D\u8981\u8F93\u51FA HTML\u3001JavaScript \u6216\u89E3\u91CA\u6587\u5B57\u3002
+2. \u6240\u6709\u9009\u62E9\u5668\u5FC5\u987B\u4EE5 .note-to-mp \u5F00\u5934\uFF0C\u907F\u514D\u5F71\u54CD Obsidian \u7684\u5176\u4ED6\u754C\u9762\u3002
+3. \u81F3\u5C11\u8986\u76D6\uFF1A.note-to-mp\u3001h1\u3001h2\u3001h3\u3001p\u3001strong\u3001em\u3001a\u3001blockquote\u3001ul\u3001ol\u3001li\u3001code\u3001.code-section\u3001.code-section pre\u3001.code-section code\u3001img\u3001hr\u3002
+4. \u6B63\u6587\u5EFA\u8BAE 16px\uFF0C\u884C\u9AD8 1.75-1.9\uFF1Bh1 \u5EFA\u8BAE 24-28px\uFF0Ch2 \u5EFA\u8BAE 19-22px\uFF0Ch3 \u5EFA\u8BAE 16-18px\u3002
+5. \u5185\u5BB9\u5BBD\u5EA6\u4E0D\u8D85\u8FC7 677px\uFF0C\u56FE\u7247 max-width: 100%\uFF0C\u957F\u94FE\u63A5\u548C\u4EE3\u7801\u5FC5\u987B\u5141\u8BB8\u6362\u884C\u3002
+6. \u4F7F\u7528\u7CFB\u7EDF\u5B57\u4F53\uFF0C\u4E0D\u4F7F\u7528 @import\u3001\u5916\u90E8\u5B57\u4F53\u3001\u5916\u94FE\u80CC\u666F\u56FE\u3001\u52A8\u753B\u3001hover \u4F9D\u8D56\u3001CSS \u53D8\u91CF\u3001CSS counter \u6216\u590D\u6742 @media\u3002
+7. \u5FAE\u4FE1\u6700\u7EC8\u4F7F\u7528\u5185\u8054\u6837\u5F0F\uFF0C\u56E0\u6B64\u88C5\u9970\u8981\u5C3D\u91CF\u4F9D\u9760\u989C\u8272\u3001\u8FB9\u6846\u3001\u5706\u89D2\u3001\u80CC\u666F\u548C\u7559\u767D\u5B8C\u6210\u3002
+8. \u4FDD\u8BC1\u767D\u5E95\u4E0B\u6B63\u6587\u548C\u6807\u9898\u6709\u8DB3\u591F\u5BF9\u6BD4\u5EA6\uFF0C\u907F\u514D\u8FC7\u6D45\u6587\u5B57\u3001\u8FC7\u5F3A\u9634\u5F71\u548C\u5927\u9762\u79EF\u9AD8\u9971\u548C\u80CC\u666F\u3002
+
+\u8BF7\u4EE5\u8FD9\u4EFD\u517C\u5BB9\u793A\u4F8B\u4E3A\u57FA\u7840\u8BBE\u8BA1\uFF0C\u800C\u4E0D\u662F\u6539\u53D8\u9009\u62E9\u5668\u7ED3\u6784\uFF1A
+
+\`\`\`css
+.note-to-mp {
+  max-width: 677px;
+  margin: 0 auto;
+  padding: 0 20px 32px;
+  background: #ffffff !important;
+  color: #334155 !important;
+  font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-size: 16px;
+  line-height: 1.85 !important;
+  word-break: break-word;
+}
+
+.note-to-mp p {
+  margin: 0 0 20px !important;
+  color: #334155 !important;
+  font-size: 16px;
+  line-height: 1.85 !important;
+  text-align: justify !important;
+}
+
+.note-to-mp h1 {
+  margin: 0 0 32px;
+  color: #0f172a !important;
+  font-size: 26px;
+  line-height: 1.4 !important;
+}
+
+.note-to-mp h2 {
+  margin: 44px 0 22px !important;
+  padding-left: 12px;
+  border-left: 4px solid #2563eb;
+  color: #0f172a !important;
+  font-size: 20px;
+  line-height: 1.45 !important;
+}
+
+.note-to-mp h3 {
+  margin: 30px 0 16px !important;
+  color: #1e293b !important;
+  font-size: 17px;
+  line-height: 1.5 !important;
+}
+
+.note-to-mp strong { color: #0f172a !important; font-weight: 700; }
+.note-to-mp em { color: #2563eb !important; font-style: normal; }
+.note-to-mp a { color: #2563eb !important; text-decoration: none; }
+
+.note-to-mp blockquote {
+  margin: 0 0 24px !important;
+  padding: 16px 18px;
+  border-left: 4px solid #2563eb;
+  background: #eff6ff !important;
+  color: #475569 !important;
+}
+
+.note-to-mp ul,
+.note-to-mp ol { margin: 0 0 24px; padding-left: 24px; }
+.note-to-mp li { margin: 7px 0; line-height: 1.8 !important; }
+
+.note-to-mp code {
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: #eff6ff !important;
+  color: #1d4ed8 !important;
+  font-family: Menlo, Monaco, Consolas, monospace;
+}
+
+.note-to-mp .code-section {
+  margin: 0 0 24px;
+  padding: 18px;
+  border-radius: 10px;
+  background: #0f172a !important;
+  overflow-x: auto;
+}
+
+.note-to-mp .code-section pre { margin: 0; padding: 0; background: transparent !important; }
+.note-to-mp .code-section code { display: block; padding: 0; background: transparent !important; color: #dbeafe !important; }
+.note-to-mp img { max-width: 100%; height: auto; display: block; margin: 28px auto; border-radius: 10px; }
+.note-to-mp hr { margin: 44px 0 30px; border: none; border-top: 1px solid #e2e8f0; }
+\`\`\`
+
+\u8BF7\u4FDD\u6301\u8FD9\u4E9B\u517C\u5BB9\u89C4\u5219\uFF0C\u518D\u6839\u636E\u6211\u63A5\u4E0B\u6765\u63D0\u4F9B\u7684\u53C2\u8003\u56FE\u7247\u3001\u54C1\u724C\u989C\u8272\u6216\u6587\u7AE0\u7C7B\u578B\u5B8C\u6210\u89C6\u89C9\u8BBE\u8BA1\u3002`;
+
 // src/main.ts
 var FolderSuggestModal = class extends import_obsidian7.FuzzySuggestModal {
   constructor(app, folderPaths, onChoose) {
@@ -20888,6 +21353,36 @@ var FolderSuggestModal = class extends import_obsidian7.FuzzySuggestModal {
     this.onChoose(item);
   }
 };
+var CustomThemeGuideModal = class extends import_obsidian7.Modal {
+  onOpen() {
+    const { contentEl } = this;
+    contentEl.empty();
+    contentEl.addClass("wechatpb-theme-guide-modal");
+    contentEl.createEl("h2", { text: "AI \u81EA\u5B9A\u4E49\u6392\u7248\u793A\u4F8B" });
+    contentEl.createEl("p", {
+      text: "\u590D\u5236\u4E0B\u9762\u7684\u5B8C\u6574\u89C4\u8303\u53D1\u7ED9 AI\uFF0C\u518D\u8865\u5145\u4F60\u7684\u53C2\u8003\u56FE\u7247\u3001\u54C1\u724C\u989C\u8272\u6216\u6587\u7AE0\u7C7B\u578B\u3002AI \u8F93\u51FA\u7684 CSS \u53EF\u4EE5\u4FDD\u5B58\u4E3A .css \u6587\u4EF6\uFF0C\u6216\u653E\u8FDB Markdown \u7684 css \u4EE3\u7801\u5757\u3002"
+    });
+    const guide = contentEl.createEl("textarea", { cls: "wechatpb-theme-guide-content" });
+    guide.value = CUSTOM_THEME_AI_GUIDE;
+    guide.readOnly = true;
+    const actions = contentEl.createDiv({ cls: "modal-button-container" });
+    const copyButton = actions.createEl("button", { text: "\u590D\u5236\u7ED9 AI", cls: "mod-cta" });
+    copyButton.onclick = async () => {
+      try {
+        await navigator.clipboard.writeText(CUSTOM_THEME_AI_GUIDE);
+        copyButton.textContent = "\u5DF2\u590D\u5236";
+        window.setTimeout(() => copyButton.textContent = "\u590D\u5236\u7ED9 AI", 1800);
+      } catch (error) {
+        console.error("Failed to copy custom theme guide:", error);
+        new import_obsidian7.Notice("\u590D\u5236\u5931\u8D25\uFF0C\u8BF7\u5728\u793A\u4F8B\u6846\u4E2D\u5168\u9009\u590D\u5236");
+      }
+    };
+    actions.createEl("button", { text: "\u5173\u95ED", cls: "mod-cancel" }).onclick = () => this.close();
+  }
+  onClose() {
+    this.contentEl.empty();
+  }
+};
 var WeChatPublisherPlugin = class extends import_obsidian7.Plugin {
   constructor() {
     super(...arguments);
@@ -20899,12 +21394,12 @@ var WeChatPublisherPlugin = class extends import_obsidian7.Plugin {
       VIEW_TYPE_PUBLISHER,
       (leaf) => new PublisherView(leaf, this)
     );
-    this.addRibbonIcon("message-circle", "\u5FAE\u4FE1\u516C\u4F17\u53F7\u53D1\u5E03", () => {
+    this.addRibbonIcon("message-circle", "WeChatPB", () => {
       void this.activateView();
     });
     this.addCommand({
       id: "open-publisher",
-      name: "\u6253\u5F00\u5FAE\u4FE1\u516C\u4F17\u53F7\u53D1\u5E03\u9762\u677F",
+      name: "\u6253\u5F00 WeChatPB \u53D1\u5E03\u9762\u677F",
       callback: () => {
         void this.activateView();
       }
@@ -20916,13 +21411,15 @@ var WeChatPublisherPlugin = class extends import_obsidian7.Plugin {
     this.stopAutoCheck();
   }
   async loadSettings() {
-    var _a, _b;
+    var _a, _b, _c;
     const saved = await this.loadData();
     this.settings = {
       ...DEFAULT_SETTINGS,
       ...saved != null ? saved : {},
       accounts: (_a = saved == null ? void 0 : saved.accounts) != null ? _a : [],
-      publishHistory: (_b = saved == null ? void 0 : saved.publishHistory) != null ? _b : []
+      publishHistory: (_b = saved == null ? void 0 : saved.publishHistory) != null ? _b : [],
+      customThemesEnabled: (_c = saved == null ? void 0 : saved.customThemesEnabled) != null ? _c : Boolean(saved == null ? void 0 : saved.themesFolder),
+      defaultTheme: !(saved == null ? void 0 : saved.defaultTheme) || saved.defaultTheme === "\u9ED8\u8BA4" ? DEFAULT_BUILTIN_THEME : saved.defaultTheme
     };
     await this.migrateLegacySecrets();
   }
@@ -21108,38 +21605,33 @@ var WeChatPublisherSettingTab = class extends import_obsidian7.PluginSettingTab 
       await this.plugin.saveSettings();
       this.plugin.startAutoCheck();
     }));
-    new import_obsidian7.Setting(containerEl).setName("CSS \u6837\u5F0F\u6587\u4EF6\u5939").setDesc("\u70B9\u51FB\u4E0B\u65B9\u6309\u94AE\u9009\u62E9\u6587\u4EF6\u5939\uFF0C\u6216\u624B\u52A8\u8F93\u5165\u8DEF\u5F84").addText((text) => text.setPlaceholder('\u70B9\u51FB\u4E0B\u65B9"\u9009\u62E9\u6587\u4EF6\u5939"\u6309\u94AE').setValue(this.plugin.settings.themesFolder).onChange((value) => {
-      this.plugin.settings.themesFolder = (0, import_obsidian7.normalizePath)(value);
-    })).addButton((button) => button.setButtonText("\u9009\u62E9\u6587\u4EF6\u5939").onClick(async () => {
-      const folders = this.getAllFolders(this.app.vault.getRoot());
-      const folderPaths = folders.map((f) => f.path).sort();
-      const modal = new FolderSuggestModal(this.app, folderPaths, async (selectedPath) => {
-        this.plugin.settings.themesFolder = selectedPath;
-        await this.plugin.saveSettings();
-        this.display();
-        const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_PUBLISHER);
-        for (const leaf of leaves) {
-          const view = leaf.view;
-          if (view) {
-            view.themeManager.setThemesFolder(selectedPath);
-            await view.themeManager.loadThemes();
-            view.render();
-          }
-        }
-      });
-      modal.open();
-    })).addButton((button) => button.setButtonText("\u4FDD\u5B58\u5E76\u5E94\u7528").setCta().onClick(async () => {
+    new import_obsidian7.Setting(containerEl).setName("\u6392\u7248\u6837\u5F0F").setHeading();
+    new import_obsidian7.Setting(containerEl).setName("Memoria \u5185\u7F6E\u6392\u7248").setDesc("\u5DF2\u5185\u7F6E 14 \u5957\u4F18\u5316\u6392\u7248\uFF0C\u65B0\u7528\u6237\u65E0\u9700\u9009\u62E9\u6587\u4EF6\u5939\u6216\u4FDD\u5B58\u5E94\u7528\uFF0C\u9ED8\u8BA4\u4F7F\u7528\u201C\u7EFF\u767D\u6E05\u7B80\u201D\u3002").addButton((button) => button.setButtonText("\u67E5\u770B AI \u6392\u7248\u89C4\u8303").onClick(() => new CustomThemeGuideModal(this.app).open()));
+    new import_obsidian7.Setting(containerEl).setName("\u542F\u7528\u81EA\u5B9A\u4E49\u6392\u7248").setDesc("\u4EC5\u5728\u4F60\u8981\u5BFC\u5165\u6216\u8BA9 AI \u8BBE\u8BA1\u81EA\u5DF1\u7684 CSS \u6392\u7248\u65F6\u5F00\u542F\u3002\u5173\u95ED\u65F6\u53EA\u663E\u793A Memoria \u5185\u7F6E\u6392\u7248\u3002").addToggle((toggle) => toggle.setValue(this.plugin.settings.customThemesEnabled).onChange(async (enabled) => {
+      this.plugin.settings.customThemesEnabled = enabled;
       await this.plugin.saveSettings();
-      const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_PUBLISHER);
-      for (const leaf of leaves) {
-        const view = leaf.view;
-        if (view) {
-          view.themeManager.setThemesFolder(this.plugin.settings.themesFolder);
-          await view.themeManager.loadThemes();
-          view.render();
-        }
-      }
+      await this.refreshPublisherViews();
+      this.display();
     }));
+    if (this.plugin.settings.customThemesEnabled) {
+      new import_obsidian7.Setting(containerEl).setName("\u81EA\u5B9A\u4E49\u6837\u5F0F\u6587\u4EF6\u5939").setDesc("\u9009\u62E9\u5E93\u5185\u5305\u542B .css \u6587\u4EF6\u6216 css \u4EE3\u7801\u5757 Markdown \u7684\u6587\u4EF6\u5939\u3002\u9009\u62E9\u540E\u7ACB\u5373\u4FDD\u5B58\u5E76\u5E94\u7528\u3002").addText((text) => text.setPlaceholder("\u4F8B\u5982\uFF1Astyles/wechat").setValue(this.plugin.settings.themesFolder).onChange((value) => {
+        this.plugin.settings.themesFolder = (0, import_obsidian7.normalizePath)(value);
+      })).addButton((button) => button.setButtonText("\u9009\u62E9\u6587\u4EF6\u5939").onClick(() => {
+        const folders = this.getAllFolders(this.app.vault.getRoot());
+        const folderPaths = folders.map((folder) => folder.path).sort();
+        new FolderSuggestModal(this.app, folderPaths, async (selectedPath) => {
+          this.plugin.settings.themesFolder = selectedPath;
+          await this.plugin.saveSettings();
+          await this.refreshPublisherViews();
+          this.display();
+          new import_obsidian7.Notice("\u81EA\u5B9A\u4E49\u6392\u7248\u5DF2\u52A0\u8F7D");
+        }).open();
+      })).addButton((button) => button.setButtonText("\u5E94\u7528\u8DEF\u5F84").setCta().onClick(async () => {
+        await this.plugin.saveSettings();
+        await this.refreshPublisherViews();
+        new import_obsidian7.Notice("\u81EA\u5B9A\u4E49\u6392\u7248\u5DF2\u5E94\u7528");
+      }));
+    }
     new import_obsidian7.Setting(containerEl).setName("\u516C\u4F17\u53F7\u8D26\u53F7").setHeading();
     new import_obsidian7.Setting(containerEl).setName("\u6DFB\u52A0\u65B0\u8D26\u53F7").setDesc("\u6DFB\u52A0\u4E00\u4E2A\u65B0\u7684\u5FAE\u4FE1\u516C\u4F17\u53F7").addButton((button) => button.setButtonText("\u6DFB\u52A0\u8D26\u53F7").setCta().onClick(() => {
       const modal = new AccountModal(this.app, this.plugin, null, async (account) => {
@@ -21152,6 +21644,19 @@ var WeChatPublisherSettingTab = class extends import_obsidian7.PluginSettingTab 
     }));
     for (const account of this.plugin.settings.accounts) {
       this.displayAccountSetting(containerEl, account);
+    }
+  }
+  async refreshPublisherViews() {
+    var _a;
+    const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_PUBLISHER);
+    for (const leaf of leaves) {
+      const view = leaf.view;
+      view.themeManager.setThemesFolder(this.plugin.settings.themesFolder);
+      view.themeManager.setCustomThemesEnabled(this.plugin.settings.customThemesEnabled);
+      await view.themeManager.loadThemes();
+      const selected = (_a = view.themeManager.getTheme(view.selectedTheme)) != null ? _a : view.themeManager.getDefaultTheme();
+      view.selectedTheme = selected.name;
+      view.render();
     }
   }
   chooseDefaultCover() {

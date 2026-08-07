@@ -214,4 +214,11 @@
 .note-to-mp table { width: 100%; margin: 18px 0; border-collapse: collapse; font-size: 15px; }
 .note-to-mp th { background-color: #f5f5f7 !important; padding: 16px 20px; text-align: left; border: none; font-weight: 500; color: #1d1d1f !important; }
 .note-to-mp td { padding: 16px 20px; border: none; border-top: 1px solid #d2d2d7; color: #6e6e73 !important; font-weight: 300; }
+
+/* WeChatPB 视觉校准：提高长文对比度，避免细灰文字发虚 */
+.note-to-mp { color: #3f3f46 !important; }
+.note-to-mp p,
+.note-to-mp li,
+.note-to-mp td { color: #3f3f46 !important; font-weight: 400; }
+.note-to-mp blockquote { color: #52525b !important; }
 ```
